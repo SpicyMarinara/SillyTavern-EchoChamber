@@ -2,8 +2,10 @@ import { eventSource, event_types, saveSettingsDebounced } from '../../../../scr
 import { extension_settings, getContext, renderExtensionTemplateAsync } from '../../../extensions.js';
 import { debounce } from '../../../utils.js';
 
-const MODULE_NAME = 'third-party/Extension-EchoChamber';
-const BASE_URL = import.meta.url.split('/').slice(0, -1).join('/');
+const urlParts = import.meta.url.split('/');
+const extensionsIndex = urlParts.lastIndexOf('extensions');
+const MODULE_NAME = urlParts.slice(extensionsIndex + 1, -1).join('/');
+const BASE_URL = urlParts.slice(0, -1).join('/');
 
 const settings = {
     enabled: true,
@@ -487,7 +489,7 @@ const BUILT_IN_STYLES = [
     { val: 'twitter', label: 'Twitter / X', desc: '(Social Media Thread)' },
     { val: 'news', label: 'Breaking News', desc: '(Headlines Only)' },
     { val: 'mst3k', label: 'MST3K', desc: '(Sarcastic Commentary)' },
-    { val: 'nsfw_ava', label: 'Ava NSFW', desc: '(Voyeuristic Advisor)' },
+    { val: 'nsfw_ava', label: 'Ava NSFW', desc: '(Erotic Female Avatar)' },
     { val: 'nsfw_kai', label: 'Kai NSFW', desc: '(Erotic Male Avatar)' },
     { val: 'hypebot', label: 'HypeBot', desc: '(Single Hype Reaction)' },
     { val: 'doomscrollers', label: 'Doomscrollers', desc: '(Existential Dread)' },
