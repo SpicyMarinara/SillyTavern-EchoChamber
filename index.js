@@ -19,6 +19,8 @@ const settings = {
     openai_model: 'local-model',
     openai_preset: 'custom',
     userCount: 5,
+    fontSize: 15, // Font size in pixels
+    chatHeight: 250, // Chat area height in pixels
     style: 'twitch',
     custom_styles: {}, // { id: { name: "Name", prompt: "Content" } }
     deleted_styles: [] // List of IDs
@@ -43,15 +45,32 @@ function setDiscordText(html) {
 
     const originalScrollBottom = chatBlock[0].scrollHeight - (chatBlock.scrollTop() + chatBlock.outerHeight());
 
-    if (discordContent) {
+    if (discordContent && discordContent.length > 0) {
         discordContent.html(html);
-    } else if (discordBar) {
+        console.log('[EchoChamber] Updated discordContent HTML');
+    } else if (discordBar && discordBar.length > 0) {
         // Fallback if not initialized yet
         discordBar.html(html);
+        console.log('[EchoChamber] Updated discordBar HTML (fallback)');
+    } else {
+        console.error('[EchoChamber] Failed to set text: no target elements found', { contentExist: !!discordContent, barExist: !!discordBar });
     }
 
     const newScrollTop = chatBlock[0].scrollHeight - (chatBlock.outerHeight() + originalScrollBottom);
     chatBlock.scrollTop(newScrollTop);
+}
+
+function applyFontSize(size) {
+    let styleEl = $('#discord_font_size_style');
+    if (styleEl.length === 0) {
+        styleEl = $('<style id="discord_font_size_style"></style>').appendTo('head');
+    }
+    styleEl.text(`
+        .discord_container { font-size: ${size}px !important; }
+        .discord_username { font-size: ${size / 15}rem !important; }
+        .discord_content { font-size: ${(size / 15) * 0.95}rem !important; }
+        .discord_timestamp { font-size: ${(size / 15) * 0.75}rem !important; }
+    `);
 }
 
 /**
@@ -209,15 +228,41 @@ async function generateDiscordChat() {
     if (!chat || chat.length === 0) return;
 
     const lastMessage = chat[chat.length - 1];
+    console.log(`[EchoChamber] Last message by: ${lastMessage.name}, is_user: ${lastMessage.is_user}`);
 
-    // REDUNDANT CHECK: onChatEvent handles "is_user" logic usually, but let's double check.
-    // If we call generateDiscordChat directly (e.g. from debug), this check is good.
     if (lastMessage.is_user) {
-        setDiscordText('<div class="discord_status"><i class="fa-solid fa-keyboard"></i> Target is typing...</div>');
+        setDiscordText(`
+            <div class="discord_status_container">
+                <div class="discord_status_msg"><i class="fa-solid fa-keyboard"></i> Target is typing...</div>
+            </div>
+        `);
         return;
     }
 
-    setDiscordText('<div class="discord_status"><i class="fa-solid fa-spinner fa-spin"></i> Chat is reacting...</div>');
+    // Improved Processing UI
+    setDiscordText(`
+        <div class="discord_status_container">
+            <div class="discord_status_msg">
+                <i class="fa-solid fa-circle-notch fa-spin"></i> EchoChamber is processing...
+            </div>
+            <button id="discord_stop_btn">
+                <i class="fa-solid fa-stop"></i> Cancel Generation
+            </button>
+        </div>
+    `);
+
+    // Bind stop button
+    $(document).off('click', '#discord_stop_btn').on('click', '#discord_stop_btn', () => {
+        if (abortController) {
+            console.log('[EchoChamber] User requested stop');
+            $('#discord_stop_btn').html('<i class="fa-solid fa-hourglass"></i> Stopping...').prop('disabled', true);
+            abortController.abort();
+            setTimeout(() => setDiscordText('<div class="discord_status">Generation stopped by user.</div>'), 200);
+        }
+    });
+
+    abortController = new AbortController();
+    console.log('[EchoChamber] AbortController initialized. Starting generation logic...');
 
     // Prepare prompt
     // Get last few messages for context
@@ -256,6 +301,7 @@ Do NOT output "Here are the messages". Just the content.`;
 
     try {
         let result = '';
+        console.log(`[EchoChamber] Generation Source: ${settings.source}`);
 
         if (settings.source === 'ollama') {
             const baseUrl = settings.url.replace(/\/$/, '');
@@ -272,11 +318,10 @@ Do NOT output "Here are the messages". Just the content.`;
             console.log(`[DiscordChat] Generating with model: ${modelToUse} at ${baseUrl} `);
 
             // Create a timeout for the generation request
-            abortController = new AbortController();
-            const timeoutId = setTimeout(() => abortController.abort(), 45000);
+            const timeoutId = setTimeout(() => abortController && abortController.abort(), 45000);
 
             try {
-                const response = await fetch(`${baseUrl} /api/generate`, {
+                const response = await fetch(`${baseUrl}/api/generate`, {
                     method: "POST",
                     headers: {
                         "Content-Type": "application/json",
@@ -323,7 +368,6 @@ Do NOT output "Here are the messages". Just the content.`;
             // Detect if this is a localhost/local network URL
             const isLocalhost = /^https?:\/\/(localhost|127\.0\.0\.1|0\.0\.0\.0|::1|\[::1\])(:|\/|$)/i.test(baseUrl);
 
-            abortController = new AbortController();
             let response;
 
             if (isLocalhost) {
@@ -410,7 +454,7 @@ Do NOT output "Here are the messages". Just the content.`;
         let cleanResult = result.replace(/<\/?discordchat>/gi, '').trim();
 
         const lines = cleanResult.split('\n');
-        let htmlBuffer = '<div class="discord_container">';
+        let htmlBuffer = '<div class="discord_container" style="padding-top: 10px;">';
 
         const parsedMessages = [];
         let currentMsg = null;
@@ -507,6 +551,7 @@ Do NOT output "Here are the messages". Just the content.`;
             setDiscordText('<div class="discord_status">No valid chat lines generated.</div>');
             console.warn('[DiscordChat] Empty parse. Raw:', result);
         } else {
+            console.log(`[EchoChamber] Successfully rendered ${messageCount} messages`);
             setDiscordText(htmlBuffer);
         }
 
@@ -635,6 +680,15 @@ function loadSettings() {
     $('#discord_openai_preset').val(settings.openai_preset || 'custom');
     $('#discord_preset_select').val(settings.preset || '');
     $('#discord_quick_bar_enabled').prop('checked', settings.showQuickBar);
+    $('#discord_font_size').val(settings.fontSize || 15);
+
+    // Apply font size
+    applyFontSize(settings.fontSize || 15);
+
+    // Apply height from settings
+    if (settings.chatHeight && discordContent) {
+        discordContent.css('height', `${settings.chatHeight}px`);
+    }
 
     updateSourceVisibility();
     updateAllDropdowns();
@@ -800,14 +854,55 @@ jQuery(async () => {
                   <div class="discord_quick_refresh" style="cursor:pointer; font-weight:bold; opacity:0.8; margin-right:2px; padding:2px 5px;" title="Regenerate Chat">Refresh</div>
                   <i class="fa-solid fa-users" style="color:var(--SmartThemeQuoteColor); font-size: 0.9em; opacity:0.8;" title="User Count"></i>
                   <input type="text" class="discord_quick_count" title="User Count" value="${settings.userCount}" style="width: 30px; height: 18px; background:transparent; border:1px solid rgba(128,128,128,0.5); border-radius:3px; color:inherit; text-align:center; font-size: 1.1em; padding: 0;">
+                  <i class="fa-solid fa-font" style="color:var(--SmartThemeQuoteColor); font-size: 0.9em; opacity:0.8; margin-left: 3px;" title="Font Size"></i>
+                  <input type="text" class="discord_quick_font" title="Font Size" value="${settings.fontSize || 15}" style="width: 30px; height: 18px; background:transparent; border:1px solid rgba(128,128,128,0.5); border-radius:3px; color:inherit; text-align:center; font-size: 1.1em; padding: 0;">
              </div>
         </div>
     `);
 
     discordContent = $('<div id="discordContent"></div>');
+    const resizeHandle = $('<div class="discord_resize_handle" id="discordResizeHandle" title="Drag to resize chat"></div>');
 
-    discordBar.append(discordQuickBar).append(discordContent);
+    discordBar.append(discordQuickBar).append(resizeHandle).append(discordContent);
     $('#send_form').append(discordBar);
+
+    // Resizing Logic
+    let isResizing = false;
+    let startY, startHeight;
+
+    const startResize = (e) => {
+        isResizing = true;
+        startY = e.type.includes('touch') ? e.touches[0].clientY : e.clientY;
+        startHeight = discordContent.height();
+        resizeHandle.addClass('resizing');
+        $('body').css('cursor', 'ns-resize');
+        e.preventDefault();
+    };
+
+    const doResize = (e) => {
+        if (!isResizing) return;
+        const currentY = e.type.includes('touch') ? e.touches[0].clientY : e.clientY;
+        const delta = currentY - startY;
+        const newHeight = Math.max(60, startHeight - delta);
+        discordContent.css('height', `${newHeight}px`);
+    };
+
+    const stopResize = () => {
+        if (!isResizing) return;
+        isResizing = false;
+        resizeHandle.removeClass('resizing');
+        $('body').css('cursor', '');
+
+        // Save height
+        const finalHeight = discordContent.height();
+        settings.chatHeight = finalHeight;
+        if (extension_settings.discord_chat) extension_settings.discord_chat.chatHeight = finalHeight;
+        saveSettingsDebounced();
+    };
+
+    resizeHandle.on('mousedown touchstart', startResize);
+    $(window).on('mousemove touchmove', doResize);
+    $(window).on('mouseup touchend', stopResize);
 
     // Quick Bar Listeners
     discordQuickBar.find('.discord_quick_toggle').on('click', function () {
@@ -989,6 +1084,43 @@ jQuery(async () => {
         saveSettingsDebounced();
         // Sync Quick Bar
         discordQuickBar.find('.discord_quick_count').val(val);
+    });
+
+    $('#discord_font_size').on('input', function () {
+        let val = parseInt($(this).val());
+        if (val < 8) val = 8;
+        if (val > 32) val = 32;
+        settings.fontSize = val;
+        extension_settings.discord_chat.fontSize = val;
+        saveSettingsDebounced();
+        applyFontSize(val);
+        // Sync Quick Bar
+        if (discordQuickBar) discordQuickBar.find('.discord_quick_font').val(val);
+    });
+
+    discordQuickBar.find('.discord_quick_count').on('input change', function () {
+        let val = parseInt($(this).val());
+        if (isNaN(val)) return;
+        if (val < 1) val = 1;
+        if (val > 20) val = 20;
+        settings.userCount = val;
+        extension_settings.discord_chat.userCount = val;
+        saveSettingsDebounced();
+        // Sync main panel
+        $('#discord_user_count').val(val);
+    });
+
+    discordQuickBar.find('.discord_quick_font').on('input change', function () {
+        let val = parseInt($(this).val());
+        if (isNaN(val)) return;
+        if (val < 8) val = 8;
+        if (val > 32) val = 32;
+        settings.fontSize = val;
+        extension_settings.discord_chat.fontSize = val;
+        saveSettingsDebounced();
+        applyFontSize(val);
+        // Sync main panel
+        $('#discord_font_size').val(val);
     });
 
     $('#discord_source').on('change', function () {
