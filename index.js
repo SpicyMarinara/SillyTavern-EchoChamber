@@ -207,7 +207,8 @@
 
         const cleanMessage = (text) => {
             if (!text) return '';
-            let cleaned = text.replace(/<(thought|think|reasoning)>[\s\S]*?<\/\1>/gi, '').trim();
+            // Strip all thinking/reasoning tags: thinking, think, thought, reasoning, reason
+            let cleaned = text.replace(/<(thinking|think|thought|reasoning|reason)>[\s\S]*?<\/\1>/gi, '').trim();
             cleaned = cleaned.replace(/<[^>]*>/g, '');
             const txt = document.createElement("textarea");
             txt.innerHTML = cleaned;
@@ -365,8 +366,11 @@ Do NOT output preamble like "Here are the messages". Just output the content dir
                 }
             }
 
-            // Parse result
-            let cleanResult = result.replace(/<\/?discordchat>/gi, '').trim();
+            // Parse result - strip thinking/reasoning tags and discordchat wrapper
+            let cleanResult = result
+                .replace(/<(thinking|think|thought|reasoning|reason)>[\s\S]*?<\/\1>/gi, '')
+                .replace(/<\/?discordchat>/gi, '')
+                .trim();
             const lines = cleanResult.split('\n');
             let htmlBuffer = '<div class="discord_container" style="padding-top: 10px;">';
             let messageCount = 0;
