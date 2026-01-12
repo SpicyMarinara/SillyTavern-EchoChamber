@@ -35,8 +35,10 @@
         panelWidth: 350,
         opacity: 85,
         collapsed: false,
+        autoUpdateOnMessages: true,
         includeUserInput: false,
-        contextDepth: 2,
+        contextDepth: 4,
+        includePastEchoChambers: false,
         custom_styles: {},
         deleted_styles: []
     };
@@ -47,15 +49,16 @@
     let discordQuickBar = null;
     let abortController = null;
     let generateTimeout = null;
+    let debounceTimeout = null;
     let eventsBound = false;  // Prevent duplicate event listener registration
     let userCancelled = false; // Track user-initiated cancellations
+    let isLoadingChat = false; // Track when we're loading/switching chats to prevent auto-generation
 
     // Simple debounce
     function debounce(func, wait) {
-        let timeout;
         return function (...args) {
-            clearTimeout(timeout);
-            timeout = setTimeout(() => func.apply(this, args), wait);
+            clearTimeout(debounceTimeout);
+            debounceTimeout = setTimeout(() => func.apply(this, args), wait);
         };
     }
 
@@ -156,12 +159,88 @@
     }
 
     function onChatEvent(clear, autoGenerate = true) {
-        if (clear) setDiscordText('');
+        if (clear) {
+            setDiscordText('');
+            clearCachedCommentary();
+        }
+        // Cancel any pending generation
         if (abortController) abortController.abort();
+        clearTimeout(debounceTimeout);
+
         // Only auto-generate if triggered by a new message, not by loading a chat
         if (autoGenerate) {
             generateDebounced();
+        } else {
+            // When loading a chat, restore cached commentary
+            restoreCachedCommentary();
         }
+    }
+
+    // ============================================================
+    // METADATA MANAGEMENT FOR PERSISTENCE
+    // ============================================================
+
+    function getChatMetadata() {
+        const context = SillyTavern.getContext();
+        const chatId = context.chatId;
+        if (!chatId) return null;
+
+        if (!context.extensionSettings[MODULE_NAME]) {
+            context.extensionSettings[MODULE_NAME] = {};
+        }
+        if (!context.extensionSettings[MODULE_NAME].chatMetadata) {
+            context.extensionSettings[MODULE_NAME].chatMetadata = {};
+        }
+
+        return context.extensionSettings[MODULE_NAME].chatMetadata[chatId] || null;
+    }
+
+    function saveChatMetadata(data) {
+        const context = SillyTavern.getContext();
+        const chatId = context.chatId;
+        if (!chatId) {
+            log('Cannot save metadata: no chatId');
+            return;
+        }
+
+        if (!context.extensionSettings[MODULE_NAME]) {
+            context.extensionSettings[MODULE_NAME] = {};
+        }
+        if (!context.extensionSettings[MODULE_NAME].chatMetadata) {
+            context.extensionSettings[MODULE_NAME].chatMetadata = {};
+        }
+
+        context.extensionSettings[MODULE_NAME].chatMetadata[chatId] = data;
+        log('Saved metadata for chatId:', chatId, 'data keys:', Object.keys(data));
+        context.saveSettingsDebounced();
+    }
+
+    function clearCachedCommentary() {
+        saveChatMetadata(null);
+        log('Cleared cached commentary for current chat');
+    }
+
+    function restoreCachedCommentary() {
+        const metadata = getChatMetadata();
+        log('Attempting to restore cached commentary, metadata:', metadata);
+        if (metadata && metadata.generatedHtml) {
+            setDiscordText(metadata.generatedHtml);
+            log('Restored cached commentary from metadata, length:', metadata.generatedHtml.length);
+        } else {
+            setDiscordText('');
+            log('No cached commentary found');
+        }
+    }
+
+    function saveGeneratedCommentary(html, messageCommentaries) {
+        const chatId = SillyTavern.getContext().chatId;
+        log('Saving generated commentary for chatId:', chatId, 'html length:', html?.length);
+        saveChatMetadata({
+            generatedHtml: html,
+            messageCommentaries: messageCommentaries || {},
+            timestamp: Date.now()
+        });
+        log('Saved generated commentary to metadata');
     }
 
     // ============================================================
@@ -170,11 +249,11 @@
 
     async function generateDiscordChat() {
         if (!settings.enabled) {
-            if (discordBar) discordBar.addClass('ec_collapsed');
+            if (discordBar) discordBar.hide();
             return;
         }
 
-        if (discordBar) discordBar.removeClass('ec_collapsed');
+        if (discordBar) discordBar.show();
 
         const context = SillyTavern.getContext();
         const chat = context.chat;
@@ -187,6 +266,10 @@
             return;
         }
 
+        // Create new AbortController BEFORE setting up the Cancel button
+        userCancelled = false;
+        abortController = new AbortController();
+
         setStatus(`
             <span><i class="fa-solid fa-circle-notch fa-spin"></i> Processing...</span>
             <div class="ec_status_btn" id="ec_cancel_btn" title="Cancel Generation">
@@ -194,16 +277,43 @@
             </div>
         `);
 
-        jQuery(document).off('click', '#ec_cancel_btn').on('click', '#ec_cancel_btn', () => {
+        // Use event delegation to ensure the handler works even if button is recreated
+        jQuery(document).off('click', '#ec_cancel_btn').on('click', '#ec_cancel_btn', function(e) {
+            e.preventDefault();
+            e.stopPropagation();
+            log('Cancel button clicked');
+
+            // Clear debounce timeout in case generation hasn't started yet
+            clearTimeout(debounceTimeout);
+
             if (abortController) {
+                log('Aborting generation...');
                 userCancelled = true;
                 jQuery('#ec_cancel_btn').html('<i class="fa-solid fa-hourglass"></i> Stopping...').css('pointer-events', 'none');
                 abortController.abort();
+                log('AbortController.abort() called, signal.aborted:', abortController.signal.aborted);
+
+                // Also trigger SillyTavern's built-in stop generation
+                const stopButton = jQuery('#mes_stop');
+                if (stopButton.length && !stopButton.is('.disabled')) {
+                    log('Triggering SillyTavern stop button');
+                    stopButton.trigger('click');
+                }
+            } else {
+                log('No abortController, showing cancel message');
+                // If abortController doesn't exist yet, just clear the status
+                userCancelled = true;
+                setStatus('');
+                setDiscordText(`<div class="discord_status ec_cancelled"><i class="fa-solid fa-hand"></i> Processing cancelled</div>`);
+                setTimeout(() => {
+                    const cancelledMsg = jQuery('.ec_cancelled');
+                    if (cancelledMsg.length) {
+                        cancelledMsg.addClass('fade-out');
+                        setTimeout(() => cancelledMsg.remove(), 500);
+                    }
+                }, 3000);
             }
         });
-
-        userCancelled = false;
-        abortController = new AbortController();
 
         const cleanMessage = (text) => {
             if (!text) return '';
@@ -218,39 +328,67 @@
         // Build context history based on settings
         // includeUserInput OFF: Only the last message (AI response)
         // includeUserInput ON: Use contextDepth to include multiple exchanges
+        // Note: Filter out hidden messages (is_system === true)
         let historyMessages;
 
         if (settings.includeUserInput) {
-            const depth = Math.max(2, Math.min(8, settings.contextDepth || 2));
+            const depth = Math.max(2, Math.min(20, settings.contextDepth || 4));
+            // Filter out hidden messages first
+            const visibleChat = chat.filter(msg => !msg.is_system);
+
             // Find the starting user message based on depth
-            let startIdx = chat.length - 1;
+            let startIdx = visibleChat.length - 1;
 
             // Walk backwards to find how far back we need to go
-            for (let i = chat.length - 1; i >= 0 && (chat.length - i) <= depth; i--) {
+            for (let i = visibleChat.length - 1; i >= 0 && (visibleChat.length - i) <= depth; i--) {
                 startIdx = i;
             }
 
             // Now find the nearest user message at or before startIdx
             for (let i = startIdx; i >= 0; i--) {
-                if (chat[i].is_user) {
+                if (visibleChat[i].is_user) {
                     startIdx = i;
                     break;
                 }
             }
 
-            historyMessages = chat.slice(startIdx);
+            historyMessages = visibleChat.slice(startIdx);
             // Limit to depth messages
             if (historyMessages.length > depth) {
                 historyMessages = historyMessages.slice(-depth);
             }
-            log('includeUserInput ON - depth:', depth, 'startIdx:', startIdx, 'count:', historyMessages.length);
+            log('includeUserInput ON - depth:', depth, 'startIdx:', startIdx, 'count:', historyMessages.length, '(excluding hidden)');
         } else {
-            // Only the last message (AI response)
-            historyMessages = chat.slice(-1);
-            log('includeUserInput OFF - using last message only');
+            // Only the last message (AI response), excluding hidden messages
+            const visibleChat = chat.filter(msg => !msg.is_system);
+            historyMessages = visibleChat.slice(-1);
+            log('includeUserInput OFF - using last visible message only');
         }
 
-        const history = historyMessages.map(msg => `${msg.name}: ${cleanMessage(msg.mes)}`).join('\n');
+        // Build history with past commentary if enabled
+        const metadata = getChatMetadata();
+        const messageCommentaries = (metadata && metadata.messageCommentaries) || {};
+        let history = '';
+
+        if (settings.includePastEchoChambers && metadata && metadata.messageCommentaries) {
+            // Include past generated commentary
+            for (let i = 0; i < historyMessages.length; i++) {
+                const msg = historyMessages[i];
+                const msgIndex = chat.indexOf(msg);
+                history += `<message="${msgIndex}">\n${msg.name}: ${cleanMessage(msg.mes)}\n</message="${msgIndex}">\n`;
+
+                // Add commentary if it exists for this message
+                if (messageCommentaries[msgIndex]) {
+                    history += `<commentary="${msgIndex}">\n${messageCommentaries[msgIndex]}\n</commentary="${msgIndex}">\n`;
+                }
+                if (i < historyMessages.length - 1) history += '\n';
+            }
+            log('Including past EchoChambers commentary');
+        } else {
+            // Just messages without past commentary
+            history = historyMessages.map(msg => `${msg.name}: ${cleanMessage(msg.mes)}`).join('\n');
+        }
+
         log('History messages:', historyMessages.map(m => ({ name: m.name, is_user: m.is_user })));
 
         // Determine user count - narrator styles always use 1
@@ -261,22 +399,27 @@
 
         const stylePrompt = await loadChatStyle(settings.style || 'twitch');
 
+        // Simple system message
+        const systemMessage = 'You are an excellent creator of fake chat feeds that react dynamically to the user\'s conversation context.';
+
         // Build dynamic prefix based on style type
         const countInstruction = isNarratorStyle
             ? ''
             : `IMPORTANT: You MUST generate EXACTLY ${userCount} chat messages. Not fewer, not more - exactly ${userCount}.\n\n`;
 
-        const truePrompt = `[STORY CONTEXT]
+        const truePrompt = `<story_context>
 ${history}
+</story_context>
 
-[INSTRUCTION]
+<instructions>
 ${countInstruction}${stylePrompt}
+</instructions>
 
-[TASK]
-React to the story context above.
-STRICTLY follow the format defined in the instruction.
-${isNarratorStyle ? '' : `Output exactly ${userCount} messages.\n`}Do NOT continue the story or roleplay as the characters.
-Do NOT output preamble like "Here are the messages". Just output the content directly.`;
+How do you react to the story context above?
+
+Think about it first.
+
+STRICTLY follow the format defined in the instruction. ${isNarratorStyle ? '' : `Output exactly ${userCount} messages.`} Do NOT continue the story or roleplay as the characters. Do NOT output preamble like "Here are the messages". Just output the content directly.`;
 
         try {
             let result = '';
@@ -291,7 +434,7 @@ Do NOT output preamble like "Here are the messages". Just output the content dir
                 if (!context.ConnectionManagerRequestService) throw new Error('ConnectionManagerRequestService not available');
 
                 const messages = [
-                    { role: 'system', content: stylePrompt },
+                    { role: 'system', content: systemMessage },
                     { role: 'user', content: truePrompt }
                 ];
 
@@ -327,7 +470,7 @@ Do NOT output preamble like "Here are the messages". Just output the content dir
                     headers: { "Content-Type": "application/json" },
                     body: JSON.stringify({
                         model: modelToUse,
-                        system: stylePrompt,
+                        system: systemMessage,
                         prompt: truePrompt,
                         stream: false,
                         options: { num_ctx: 2048, num_predict: 512, stop: ["</discordchat>"] }
@@ -343,7 +486,10 @@ Do NOT output preamble like "Here are the messages". Just output the content dir
 
                 const payload = {
                     model: settings.openai_model || 'local-model',
-                    messages: [{ role: 'user', content: truePrompt }],
+                    messages: [
+                        { role: 'system', content: systemMessage },
+                        { role: 'user', content: truePrompt }
+                    ],
                     temperature: 0.7, max_tokens: 500, stream: false
                 };
 
@@ -360,10 +506,16 @@ Do NOT output preamble like "Here are the messages". Just output the content dir
                 // Default ST generation using context
                 const { generateRaw } = context;
                 if (generateRaw) {
-                    result = await generateRaw({ systemPrompt: stylePrompt, prompt: truePrompt, streaming: false });
+                    result = await generateRaw({ systemPrompt: systemMessage, prompt: truePrompt, streaming: false });
                 } else {
                     throw new Error('generateRaw not available in context');
                 }
+            }
+
+            // Check if generation was aborted before parsing
+            if (abortController.signal.aborted || userCancelled) {
+                log('Generation was cancelled, skipping result parsing');
+                throw new Error('Generation cancelled by user');
             }
 
             // Parse result - strip thinking/reasoning tags and discordchat wrapper
@@ -420,26 +572,29 @@ Do NOT output preamble like "Here are the messages". Just output the content dir
                 setDiscordText('<div class="discord_status">No valid chat lines generated.</div>');
             } else {
                 setDiscordText(htmlBuffer);
+
+                // Save to metadata for persistence
+                const lastMsgIndex = chat.length - 1;
+                const updatedCommentaries = { ...(messageCommentaries || {}) };
+                updatedCommentaries[lastMsgIndex] = cleanResult; // Store the raw commentary text
+                saveGeneratedCommentary(htmlBuffer, updatedCommentaries);
             }
 
         } catch (err) {
             setStatus('');
             const isAbort = err.name === 'AbortError' || err.message?.includes('aborted') || userCancelled;
             if (isAbort || userCancelled) {
-                // User cancelled - show friendly message that fades after 3 seconds
-                setDiscordText(`<div class="discord_status ec_cancelled"><i class="fa-solid fa-hand"></i> Processing cancelled</div>`);
+                // User cancelled - show toast notification, keep previous content
+                if (typeof toastr !== 'undefined') {
+                    toastr.info('Generation cancelled', 'EchoChamber');
+                }
                 log('Generation cancelled by user');
-                setTimeout(() => {
-                    const cancelledMsg = jQuery('.ec_cancelled');
-                    if (cancelledMsg.length) {
-                        cancelledMsg.addClass('fade-out');
-                        setTimeout(() => cancelledMsg.remove(), 500);
-                    }
-                }, 3000);
             } else {
-                // Actual error occurred
+                // Actual error occurred - show error toast, keep previous content
                 error('Generation failed:', err);
-                setDiscordText(`<div class="discord_status ec_error"><i class="fa-solid fa-circle-exclamation"></i> ${err.message}</div>`);
+                if (typeof toastr !== 'undefined') {
+                    toastr.error(err.message || 'Unknown error occurred', 'EchoChamber Generation Error');
+                }
             }
         }
     }
@@ -493,7 +648,17 @@ Do NOT output preamble like "Here are the messages". Just output the content dir
 
     function saveSettings() {
         const context = SillyTavern.getContext();
-        context.extensionSettings[MODULE_NAME] = settings;
+        // Preserve chatMetadata when saving settings
+        const existingMetadata = context.extensionSettings[MODULE_NAME]?.chatMetadata;
+
+        // Create a clean copy of settings without chatMetadata
+        const settingsToSave = Object.assign({}, settings);
+        delete settingsToSave.chatMetadata;
+
+        context.extensionSettings[MODULE_NAME] = settingsToSave;
+        if (existingMetadata) {
+            context.extensionSettings[MODULE_NAME].chatMetadata = existingMetadata;
+        }
         context.saveSettingsDebounced();
     }
 
@@ -504,7 +669,11 @@ Do NOT output preamble like "Here are the messages". Just output the content dir
             context.extensionSettings[MODULE_NAME] = JSON.parse(JSON.stringify(defaultSettings));
         }
 
-        settings = Object.assign({}, defaultSettings, context.extensionSettings[MODULE_NAME]);
+        // Don't copy chatMetadata into settings - it should stay in extensionSettings only
+        const savedSettings = Object.assign({}, context.extensionSettings[MODULE_NAME]);
+        delete savedSettings.chatMetadata;
+
+        settings = Object.assign({}, defaultSettings, savedSettings);
         settings.userCount = parseInt(settings.userCount) || 5;
         settings.opacity = parseInt(settings.opacity) || 85;
 
@@ -522,8 +691,10 @@ Do NOT output preamble like "Here are the messages". Just output the content dir
         jQuery('#discord_style').val(settings.style || 'twitch');
         jQuery('#discord_opacity').val(settings.opacity);
         jQuery('#discord_opacity_val').text(settings.opacity + '%');
+        jQuery('#discord_auto_update').prop('checked', settings.autoUpdateOnMessages !== false);
         jQuery('#discord_include_user').prop('checked', settings.includeUserInput);
-        jQuery('#discord_context_depth').val(settings.contextDepth || 2);
+        jQuery('#discord_context_depth').val(settings.contextDepth || 4);
+        jQuery('#discord_include_past_echo').prop('checked', settings.includePastEchoChambers || false);
         // Show/hide context depth based on include user input setting
         jQuery('#discord_context_depth_container').toggle(settings.includeUserInput);
 
@@ -744,11 +915,11 @@ Do NOT output preamble like "Here are the messages". Just output the content dir
         // Render editor (textarea content set separately to avoid HTML injection issues)
         jQuery('#ec_style_main').html(`
             <div class="ec_style_name_row">
-                <input type="text" class="ec_style_name_input" id="ec_style_name" 
+                <input type="text" class="ec_style_name_input" id="ec_style_name"
                        value="${safeStyleName}" placeholder="Style Name" ${!isCustom ? 'readonly' : ''}>
                 ${!isCustom ? '<small style="opacity:0.6;">(Built-in styles cannot be renamed)</small>' : ''}
             </div>
-            <textarea class="ec_style_textarea" id="ec_style_content" 
+            <textarea class="ec_style_textarea" id="ec_style_content"
                       placeholder="Enter the prompt/instructions for this style..."></textarea>
         `);
 
@@ -766,17 +937,37 @@ Do NOT output preamble like "Here are the messages". Just output the content dir
 
     let templateCreatorModal = null;
 
-    const defaultAdvancedTemplate = `You are simulating a chat reacting to story events.
+    const defaultAdvancedTemplate = `You will be acting as a chat feed audience. Your goal is to simulate messages reacting to the unfolding events.
 
-FORMAT: username: message
+<usernames>
+- Generate NEW random usernames each time
+- Make them creative and varied
+- Align them with the conversation context
+</usernames>
 
-USERNAMES: Generate NEW random usernames each time. Make them creative and varied.
+<personalities>
+- Mix different personality types and reactions
+- Include enthusiasts, skeptics, comedians, and analysts
+- Vary the tone and engagement level
+</personalities>
 
-PERSONALITY: Mix different personality types and reactions.
+<style>
+- Keep messages short and natural
+- React to events as they happen
+- Use platform-appropriate language and emojis
+</style>
 
-STYLE: Keep messages short and natural. React to events as they happen.
+<interactions>
+- Users may respond to each other
+- Reference what others said
+- Create natural conversation flow
+</interactions>
 
-INTERACTIONS: Users may respond to each other and reference what others said.`;
+You must format your responses using the following format:
+<format>
+username: message
+</format>
+`;
 
     function createTemplateCreatorModal() {
         if (jQuery('#ec_template_creator_modal').length) return;
@@ -874,14 +1065,12 @@ INTERACTIONS: Users may respond to each other and reference what others said.`;
                             <input type="text" id="ec_tpl_adv_name" placeholder="My Custom Chat" />
                         </div>
                         <div class="ec_form_group ec_full_height">
-                            <div class="ec_label_row">
-                                <label>System Prompt</label>
-                                <div class="ec_prompt_actions">
-                                    <button class="menu_button ec_small_btn" id="ec_tpl_copy"><i class="fa-solid fa-copy"></i> Copy</button>
-                                    <button class="menu_button ec_small_btn" id="ec_tpl_paste"><i class="fa-solid fa-paste"></i> Paste</button>
-                                    <button class="menu_button ec_small_btn" id="ec_tpl_clear"><i class="fa-solid fa-eraser"></i> Clear</button>
-                                    <button class="menu_button ec_small_btn" id="ec_tpl_reset"><i class="fa-solid fa-rotate-left"></i> Reset</button>
-                                </div>
+                            <label>System Prompt</label>
+                            <div class="ec_prompt_actions">
+                                <button class="menu_button ec_small_btn" id="ec_tpl_copy"><i class="fa-solid fa-copy"></i> Copy</button>
+                                <button class="menu_button ec_small_btn" id="ec_tpl_paste"><i class="fa-solid fa-paste"></i> Paste</button>
+                                <button class="menu_button ec_small_btn" id="ec_tpl_clear"><i class="fa-solid fa-eraser"></i> Clear</button>
+                                <button class="menu_button ec_small_btn" id="ec_tpl_reset"><i class="fa-solid fa-rotate-left"></i> Reset</button>
                             </div>
                             <textarea id="ec_tpl_adv_prompt" placeholder="Write your complete system prompt here..."></textarea>
                             <small>The extension will prepend "Generate X messages" based on user count setting.</small>
@@ -1038,39 +1227,74 @@ INTERACTIONS: Users may respond to each other and reference what others said.`;
                 ? customTone
                 : (toneDescriptions[toneSelect] || 'varied and natural');
 
+            // Build prompt with XML format
             let prompt = '';
-            if (identity) prompt += `${identity}\n\n`;
-            prompt += `FORMAT: ${format}\n\n`;
 
+            // Opening
+            if (identity) {
+                prompt += `${identity}\n\n`;
+            } else {
+                prompt += `You will be acting as a ${type === 'chat' ? 'chat feed audience' : 'narrator'}. Your goal is to simulate ${type === 'chat' ? 'messages' : 'commentary'} reacting to the unfolding events.\n\n`;
+            }
+
+            // Usernames section
             if (type === 'chat') {
-                prompt += `USERNAMES: Generate NEW random usernames each time. Make them creative, varied, and contextually appropriate.\n\n`;
+                prompt += `<usernames>\n`;
+                prompt += `- Generate NEW random usernames each time\n`;
+                prompt += `- Make them creative, varied, and contextually appropriate\n`;
+                prompt += `- Align them with the conversation context\n`;
+                prompt += `</usernames>\n\n`;
             }
 
+            // Personality section
             if (personality) {
-                prompt += `PERSONALITY: ${personality}\n\n`;
+                prompt += `<personalities>\n`;
+                prompt += `- ${personality}\n`;
+                prompt += `- Messages should be ${toneDescription}\n`;
+                prompt += `</personalities>\n\n`;
+            } else {
+                prompt += `<personalities>\n`;
+                prompt += `- Messages should be ${toneDescription}\n`;
+                prompt += `- Mix different personality types and reactions\n`;
+                prompt += `- Vary the tone and engagement level\n`;
+                prompt += `</personalities>\n\n`;
             }
 
-            prompt += `TONE: Messages should be ${toneDescription}.\n\n`;
-            prompt += `LENGTH: Each message should be ${lengthDescriptions[length]}.\n\n`;
-
-            // Style elements
+            // Style section
             const styleElements = [];
-            if (useEmoji) styleElements.push('use emojis');
-            if (useSlang) styleElements.push('use internet slang');
-            if (useLowercase) styleElements.push('prefer lowercase');
-            if (useTypos) styleElements.push('include occasional typos');
-            if (useAllCaps) styleElements.push('occasional ALL CAPS for emphasis');
-            if (useHashtags) styleElements.push('include hashtags');
-            if (useMentions) styleElements.push('use @mentions between users');
-            if (useFormal) styleElements.push('use proper grammar and punctuation');
+            if (useEmoji) styleElements.push('Use emojis');
+            if (useSlang) styleElements.push('Use internet slang');
+            if (useLowercase) styleElements.push('Prefer lowercase');
+            if (useTypos) styleElements.push('Include occasional typos');
+            if (useAllCaps) styleElements.push('Use ALL CAPS for emphasis occasionally');
+            if (useHashtags) styleElements.push('Include hashtags');
+            if (useMentions) styleElements.push('Use @mentions between users');
+            if (useFormal) styleElements.push('Use proper grammar and punctuation');
+            styleElements.push(`Each message should be ${lengthDescriptions[length]}`);
 
-            if (styleElements.length > 0) {
-                prompt += `STYLE: ${styleElements.join(', ')}.\n\n`;
+            prompt += `<style>\n`;
+            styleElements.forEach(element => prompt += `- ${element}\n`);
+            prompt += `</style>\n\n`;
+
+            // Interactions section
+            if (type === 'chat') {
+                prompt += `<interactions>\n`;
+                if (interact) {
+                    prompt += `- Users may respond to each other\n`;
+                    prompt += `- Users can agree, disagree, or build on previous comments\n`;
+                    prompt += `- Reference what others said\n`;
+                } else {
+                    prompt += `- Each message is independent\n`;
+                    prompt += `- No direct replies between users\n`;
+                }
+                prompt += `</interactions>\n\n`;
             }
 
-            if (type === 'chat' && interact) {
-                prompt += `INTERACTIONS: Users may respond to each other, agree, disagree, or build on previous comments.\n`;
-            }
+            // Format instruction at the end
+            prompt += `You must format your responses using the following format:\n`;
+            prompt += `<format>\n`;
+            prompt += `${format}\n`;
+            prompt += `</format>`;
 
             stylePrompt = prompt.trim();
         }
@@ -1222,9 +1446,10 @@ INTERACTIONS: Users may respond to each other and reference what others said.`;
         const layoutBtn = createBtn('fa-solid fa-table-columns', 'Panel Position', 'ec_layout_menu');
         const usersBtn = createBtn('fa-solid fa-users', 'User Count', 'ec_user_menu');
         const fontBtn = createBtn('fa-solid fa-font', 'Font Size', 'ec_font_menu');
+        const clearBtn = createBtn('fa-solid fa-trash-can', 'Clear Chat & Cache', null);
 
-        // Refresh is first on the left (no style button - moved to indicator row)
-        rightGroup.append(refreshBtn).append(layoutBtn).append(usersBtn).append(fontBtn);
+        // Refresh is first on the left, then layout, users, font, and clear button last
+        rightGroup.append(refreshBtn).append(layoutBtn).append(usersBtn).append(fontBtn).append(clearBtn);
 
         discordQuickBar.append(leftGroup).append(rightGroup);
 
@@ -1330,10 +1555,16 @@ INTERACTIONS: Users may respond to each other and reference what others said.`;
         discordQuickBar.css('background', headerBgWithOpacity);
 
         if (pos === 'bottom') {
-            // Insert AFTER send_form so it appears below the input box
+            // On mobile, insert BEFORE send_form; on desktop, insert AFTER
             const sendForm = jQuery('#send_form');
+            const isMobile = window.innerWidth <= 768;
+
             if (sendForm.length) {
-                sendForm.after(discordBar);
+                if (isMobile) {
+                    sendForm.before(discordBar);
+                } else {
+                    sendForm.after(discordBar);
+                }
             } else {
                 // Fallback: try form_sheld
                 const formSheld = jQuery('#form_sheld');
@@ -1362,8 +1593,8 @@ INTERACTIONS: Users may respond to each other and reference what others said.`;
                 });
                 log('Top panel placed, content height:', settings.chatHeight);
             } else {
-                // Side layouts - set width, let flex fill height
-                discordBar.css('width', `${settings.panelWidth || 350}px`);
+                // Side layouts - don't set width, let CSS handle it with calc()
+                // Only apply panelWidth if position is not left/right
                 discordContent.css({
                     'height': '100%',
                     'flex-grow': '1'
@@ -1372,8 +1603,17 @@ INTERACTIONS: Users may respond to each other and reference what others said.`;
         }
 
         // Apply Collapsed State
-        if (!settings.enabled) {
+        if (settings.collapsed) {
             discordBar.addClass('ec_collapsed');
+        } else {
+            discordBar.removeClass('ec_collapsed');
+        }
+
+        // Hide panel completely if disabled
+        if (!settings.enabled) {
+            discordBar.hide();
+        } else {
+            discordBar.show();
         }
 
         updateToggleIcon();
@@ -1382,12 +1622,13 @@ INTERACTIONS: Users may respond to each other and reference what others said.`;
     function updateToggleIcon() {
         if (!discordBar) return;
         const btn = discordBar.find('.ec_toggle_btn i');
-        if (settings.enabled) {
-            btn.removeClass('fa-power-off').addClass('fa-circle-check');
-            discordBar.find('.ec_toggle_btn').css('color', 'var(--ec-accent)');
-        } else {
-            btn.removeClass('fa-circle-check').addClass('fa-power-off');
+        // Icon shows collapse state, not enabled state
+        if (settings.collapsed) {
+            btn.removeClass('fa-power-off').addClass('fa-power-off');
             discordBar.find('.ec_toggle_btn').css('color', 'rgba(255, 255, 255, 0.4)');
+        } else {
+            btn.removeClass('fa-power-off').addClass('fa-power-off');
+            discordBar.find('.ec_toggle_btn').css('color', 'var(--ec-accent)');
         }
     }
 
@@ -1471,12 +1712,19 @@ INTERACTIONS: Users may respond to each other and reference what others said.`;
         if (eventsBound) return;
         eventsBound = true;
 
-        // QuickBar Toggle
+        // QuickBar Toggle - only toggles panel collapse state
         jQuery(document).on('click', '.ec_toggle_btn', function () {
-            settings.enabled = !settings.enabled;
-            jQuery('#discord_enabled').prop('checked', settings.enabled);
+            settings.collapsed = !settings.collapsed;
+
+            // Immediately apply/remove collapsed class
+            if (settings.collapsed) {
+                discordBar.addClass('ec_collapsed');
+            } else {
+                discordBar.removeClass('ec_collapsed');
+            }
+
+            updateToggleIcon();
             saveSettings();
-            updateApplyLayout();
         });
 
         // Menu Button Clicks
@@ -1496,6 +1744,13 @@ INTERACTIONS: Users may respond to each other and reference what others said.`;
                 btn.find('i').addClass('fa-spin');
                 setTimeout(() => btn.find('i').removeClass('fa-spin'), 1000);
                 generateDebounced();
+            } else if (btn.find('.fa-trash-can').length) {
+                // Clear button clicked
+                if (confirm('Clear generated chat and all cached commentary?')) {
+                    setDiscordText('');
+                    clearCachedCommentary();
+                    if (typeof toastr !== 'undefined') toastr.success('Chat and cache cleared');
+                }
             }
             e.stopPropagation();
         });
@@ -1650,9 +1905,30 @@ INTERACTIONS: Users may respond to each other and reference what others said.`;
 
         // Context Depth selection
         jQuery('#discord_context_depth').on('change', function () {
-            settings.contextDepth = parseInt(jQuery(this).val()) || 2;
+            settings.contextDepth = parseInt(jQuery(this).val()) || 4;
             saveSettings();
             log('Context depth:', settings.contextDepth);
+        });
+
+        // Auto-update On Messages toggle
+        jQuery('#discord_auto_update').on('change', function () {
+            settings.autoUpdateOnMessages = jQuery(this).prop('checked');
+            saveSettings();
+            log('Auto-update on messages:', settings.autoUpdateOnMessages);
+        });
+
+        // Auto-update On Messages toggle
+        jQuery('#discord_auto_update').on('change', function () {
+            settings.autoUpdateOnMessages = jQuery(this).prop('checked');
+            saveSettings();
+            log('Auto-update on messages:', settings.autoUpdateOnMessages);
+        });
+
+        // Include Past Generated EchoChambers toggle
+        jQuery('#discord_include_past_echo').on('change', function () {
+            settings.includePastEchoChambers = jQuery(this).prop('checked');
+            saveSettings();
+            log('Include past EchoChambers:', settings.includePastEchoChambers);
         });
 
         // Style Editor button
@@ -1663,6 +1939,34 @@ INTERACTIONS: Users may respond to each other and reference what others said.`;
         // Import Style file
         jQuery(document).on('click', '#discord_import_btn', function () {
             jQuery('#discord_import_file').click();
+        });
+
+        // Export Style button
+        jQuery(document).on('click', '#discord_export_btn', async function () {
+            const currentStyle = settings.style || 'twitch';
+            const styles = getAllStyles();
+            const styleObj = styles.find(s => s.val === currentStyle);
+            const styleName = styleObj ? styleObj.label : currentStyle;
+
+            // Get the prompt content
+            let content = '';
+            if (settings.custom_styles && settings.custom_styles[currentStyle]) {
+                content = settings.custom_styles[currentStyle].prompt;
+            } else {
+                content = await loadChatStyle(currentStyle);
+            }
+
+            const blob = new Blob([content], { type: 'text/markdown' });
+            const url = URL.createObjectURL(blob);
+            const a = document.createElement('a');
+            a.href = url;
+            a.download = `echochamber_${styleName.toLowerCase().replace(/[^a-z0-9]/g, '_')}.md`;
+            document.body.appendChild(a);
+            a.click();
+            document.body.removeChild(a);
+            URL.revokeObjectURL(url);
+
+            if (typeof toastr !== 'undefined') toastr.success(`Style "${styleName}" exported!`);
         });
 
         jQuery(document).on('change', '#discord_import_file', function () {
@@ -1690,10 +1994,26 @@ INTERACTIONS: Users may respond to each other and reference what others said.`;
         // SillyTavern Events
         const context = SillyTavern.getContext();
         if (context.eventSource && context.eventTypes) {
-            // Only auto-generate on new message (not on chat load)
-            context.eventSource.on(context.eventTypes.MESSAGE_RECEIVED, () => onChatEvent(false, true));
-            // On chat change (loading a conversation), just clear the panel - don't auto-generate
-            context.eventSource.on(context.eventTypes.CHAT_CHANGED, () => onChatEvent(true, false));
+            // Only auto-generate on new message if autoUpdateOnMessages is enabled
+            context.eventSource.on(context.eventTypes.MESSAGE_RECEIVED, () => {
+                // Don't auto-generate if there's no chat or it's empty (fresh chat)
+                const ctx = SillyTavern.getContext();
+                if (!ctx.chat || ctx.chat.length === 0) return;
+
+                // Don't auto-generate if we're currently loading/switching chats
+                if (isLoadingChat) return;
+
+                const shouldAutoGenerate = settings.autoUpdateOnMessages === true;
+                onChatEvent(false, shouldAutoGenerate);
+            });
+            // On chat change (loading a conversation), clear display and try to restore from metadata
+            context.eventSource.on(context.eventTypes.CHAT_CHANGED, () => {
+                // Set flag to prevent MESSAGE_RECEIVED from triggering during chat load
+                isLoadingChat = true;
+                onChatEvent(false, false);
+                // Clear the flag after a short delay to allow legitimate new messages
+                setTimeout(() => { isLoadingChat = false; }, 1000);
+            });
             context.eventSource.on(context.eventTypes.GENERATION_STOPPED, () => setStatus(''));
             // Refresh profiles when settings change (handles async loading)
             context.eventSource.on(context.eventTypes.SETTINGS_UPDATED, () => populateConnectionProfiles());
@@ -1747,6 +2067,11 @@ INTERACTIONS: Users may respond to each other and reference what others said.`;
         renderPanel();
         initResizeLogic();
         bindEventHandlers();
+
+        // Restore cached commentary if there's an active chat
+        if (context.chatId) {
+            restoreCachedCommentary();
+        }
 
         log('Initialization complete');
     }

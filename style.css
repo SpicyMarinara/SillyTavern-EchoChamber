@@ -60,12 +60,15 @@
 /* Position: LEFT - Fixed on left side */
 #discordBar.ec_left {
     position: fixed;
-    top: 50px;
+    top: var(--topBarBlockSize);
     bottom: 0;
     left: 0;
-    height: calc(100vh - 50px) !important;
+    width: calc(50vw - var(--sheldWidth, var(--sheld-width, 1200px)) / 2);
     min-width: 200px;
+    max-width: 600px;
+    height: calc(100vh - var(--topBarBlockSize)) !important;
     border-right: 1px solid var(--ec-border);
+    border-top: none;
     border-radius: 0;
     display: flex;
     flex-direction: column;
@@ -74,12 +77,15 @@
 /* Position: RIGHT - Fixed on right side */
 #discordBar.ec_right {
     position: fixed;
-    top: 50px;
+    top: var(--topBarBlockSize);
     bottom: 0;
     right: 0;
-    height: calc(100vh - 50px) !important;
+    width: calc(50vw - var(--sheldWidth, var(--sheld-width, 1200px)) / 2);
     min-width: 200px;
+    max-width: 600px;
+    height: calc(100vh - var(--topBarBlockSize)) !important;
     border-left: 1px solid var(--ec-border);
+    border-top: none;
     border-radius: 0;
     display: flex;
     flex-direction: column;
@@ -773,6 +779,13 @@
     opacity: 0;
     visibility: hidden;
     transition: opacity 0.2s, visibility 0.2s;
+    padding: 20px;
+    overflow-y: auto;
+    /* Ensure modal is always positioned relative to viewport, not parent */
+    transform: none !important;
+    margin: 0 !important;
+    width: 100vw;
+    height: 100vh;
 }
 
 .ec_modal_overlay.active {
@@ -792,6 +805,8 @@
     box-shadow: 0 20px 60px rgba(0, 0, 0, 0.5);
     transform: translateY(20px);
     transition: transform 0.2s;
+    margin: auto;
+    position: relative;
 }
 
 .ec_modal_overlay.active .ec_modal_content {
@@ -979,14 +994,15 @@
 }
 
 .ec_btn_primary {
-    background: #2ecc71 !important;
-    border-color: #27ae60 !important;
-    color: #000 !important;
+    background: var(--SmartThemeBlurTintColor) !important;
+    border-color: var(--SmartThemeBorderColor) !important;
+    color: var(--SmartThemeBodyColor) !important;
     font-weight: 600;
 }
 
 .ec_btn_primary:hover {
-    background: #27ae60 !important;
+    background: var(--SmartThemeQuoteColor) !important;
+    filter: brightness(1.2);
 }
 
 .ec_empty_state {
@@ -1241,12 +1257,12 @@
 #discordBar.ec_left.ec_collapsed,
 #discordBar.ec_right.ec_collapsed {
     position: fixed !important;
-    top: 50px !important;
+    top: var(--topBarBlockSize) !important;
     bottom: 0 !important;
     width: 36px !important;
     min-width: 36px !important;
     max-width: 36px !important;
-    height: calc(100vh - 50px) !important;
+    height: calc(100vh - var(--topBarBlockSize)) !important;
     padding: 0 !important;
     flex-direction: column !important;
     border-radius: 0 !important;
@@ -1301,4 +1317,295 @@
 #discordBar.ec_right.ec_collapsed .ec_toggle_btn {
     width: 28px !important;
     height: 28px !important;
+}
+
+/* ========================================= */
+/* MOBILE VIEW (768px and below)            */
+/* ========================================= */
+
+/* ========================================= */
+/* RESPONSIVE DESIGN                         */
+/* ========================================= */
+
+/* Tablet and smaller desktop (769px to 1200px) */
+@media (max-width: 1200px) and (min-width: 769px) {
+    #discordBar.ec_left,
+    #discordBar.ec_right {
+        min-width: 250px !important;
+    }
+
+    #discordBar.ec_top,
+    #discordBar.ec_bottom {
+        width: 100% !important;
+    }
+
+    /* Remove spacing from collapsed bottom panel */
+    #discordBar.ec_bottom.ec_collapsed {
+        margin-top: 0 !important;
+        padding-top: 0 !important;
+        padding: 0 !important;
+        border-top: none !important;
+    }
+
+    #discordBar.ec_bottom.ec_collapsed #discordQuickSettings {
+        margin-top: 0 !important;
+        padding-top: 0 !important;
+        border-top: none !important;
+    }
+
+    /* When expanded (not collapsed), overlay above with z-index */
+    #discordBar.ec_bottom:not(.ec_collapsed) {
+        z-index: 3000 !important;
+        max-height: 60vh !important;
+    }
+
+    #discordBar.ec_bottom:not(.ec_collapsed) #discordContent {
+        max-height: calc(60vh - 36px) !important;
+    }
+}
+
+@media (max-width: 768px) {
+    /* Bottom and Top panels - full width */
+    #discordBar.ec_bottom,
+    #discordBar.ec_top {
+        width: 100% !important;
+        max-width: 100% !important;
+    }
+
+    /* Bottom panel - relative positioning, sits above send_form on mobile */
+    #discordBar.ec_bottom {
+        position: relative !important;
+        margin-top: 0 !important;
+        margin-bottom: 0 !important;
+        border-radius: 0 !important;
+        border-top-left-radius: var(--ec-radius) !important;
+        border-top-right-radius: var(--ec-radius) !important;
+        border-bottom-left-radius: 0 !important;
+        border-bottom-right-radius: 0 !important;
+    }
+
+    /* When expanded (not collapsed), overlay above with z-index */
+    #discordBar.ec_bottom:not(.ec_collapsed) {
+        z-index: 3000 !important;
+        max-height: 60vh !important;
+    }
+
+    #discordBar.ec_bottom #discordContent {
+        max-height: 200px !important;
+        overflow-y: auto !important;
+    }
+
+    #discordBar.ec_bottom:not(.ec_collapsed) #discordContent {
+        max-height: calc(60vh - 36px) !important;
+    }
+
+    /* When collapsed, minimal height */
+    #discordBar.ec_bottom.ec_collapsed {
+        height: auto !important;
+        margin-top: 0 !important;
+        padding-top: 0 !important;
+        padding: 0 !important;
+        border-top: none !important;
+    }
+
+    #discordBar.ec_bottom.ec_collapsed #discordQuickSettings {
+        margin-top: 0 !important;
+        padding-top: 0 !important;
+        border-top: none !important;
+    }
+
+    #discordBar.ec_top {
+        top: var(--topBarHeight, 42px);
+    }
+
+    /* Side panels stay as sidebars on mobile, scaling to full viewport width when expanded */
+    #discordBar.ec_left,
+    #discordBar.ec_right {
+        position: fixed !important;
+        top: var(--topBarBlockSize) !important;
+        bottom: 0 !important;
+        height: calc(100vh - var(--topBarBlockSize)) !important;
+        border-top: none !important;
+        border-radius: 0 !important;
+        transition: width 0.3s ease, transform 0.3s ease !important;
+    }
+
+    /* Left panel on mobile */
+    #discordBar.ec_left {
+        left: 0 !important;
+        right: auto !important;
+        width: 100vw !important;
+        max-width: 100vw !important;
+        border-right: 1px solid var(--ec-border) !important;
+        border-left: none !important;
+    }
+
+    /* Right panel on mobile */
+    #discordBar.ec_right {
+        right: 0 !important;
+        left: auto !important;
+        width: 100vw !important;
+        max-width: 100vw !important;
+        border-left: 1px solid var(--ec-border) !important;
+        border-right: none !important;
+    }
+
+    /* When collapsed on mobile, show as thin bar on side */
+    #discordBar.ec_left.ec_collapsed,
+    #discordBar.ec_right.ec_collapsed {
+        width: 36px !important;
+        min-width: 36px !important;
+        max-width: 36px !important;
+    }
+
+    #discordBar.ec_left #discordContent,
+    #discordBar.ec_right #discordContent {
+        flex-grow: 1 !important;
+    }
+
+    /* Adjust header for mobile */
+    #discordQuickSettings {
+        padding: 0 6px;
+        height: 36px;
+    }
+
+    .ec_btn,
+    .ec_toggle_btn {
+        width: 32px;
+        height: 32px;
+        font-size: 1em;
+    }
+
+    /* Make style indicator text smaller on mobile */
+    .ec_style_indicator {
+        font-size: 0.7em;
+        padding: 4px 8px;
+    }
+
+    /* Modals take full screen on mobile */
+    .ec_modal_content {
+        width: 95% !important;
+        max-width: 95% !important;
+        max-height: 95vh !important;
+        border-radius: 8px;
+    }
+
+    /* Modal body adjustments */
+    .ec_modal_body {
+        min-height: 300px;
+    }
+
+    /* Style editor sidebar stacks on top */
+    .ec_style_sidebar {
+        width: 100%;
+        border-right: none;
+        border-bottom: 1px solid var(--SmartThemeBorderColor, #333);
+        max-height: 150px;
+    }
+
+    .ec_modal_body {
+        flex-direction: column;
+    }
+
+    /* Template creator adjustments */
+    .ec_template_creator {
+        width: 95% !important;
+        max-width: 95% !important;
+    }
+
+    .ec_template_body {
+        max-height: 70vh !important;
+    }
+
+    /* Form rows stack on mobile */
+    .ec_form_row {
+        flex-direction: column;
+        gap: 10px;
+    }
+
+    /* Smaller fonts in messages for mobile */
+    .discord_message {
+        padding: 4px 8px;
+    }
+
+    .discord_avatar {
+        width: 28px;
+        height: 28px;
+        font-size: 12px;
+        margin-right: 8px;
+    }
+
+    .discord_username {
+        font-size: 0.85em;
+    }
+
+    .discord_content {
+        font-size: 0.85em;
+    }
+
+    /* Settings panel adjustments */
+    .discord_settings .inline-drawer-content {
+        padding: 8px;
+    }
+}
+
+@media (max-width: 480px) {
+    /* Extra small screens - even more compact */
+    .ec_header_right {
+        gap: 1px;
+    }
+
+    .ec_btn,
+    .ec_toggle_btn {
+        width: 28px;
+        height: 28px;
+        font-size: 0.9em;
+    }
+
+    .ec_style_indicator {
+        font-size: 0.65em;
+        padding: 3px 6px;
+    }
+
+    .discord_avatar {
+        width: 24px;
+        height: 24px;
+        font-size: 11px;
+    }
+
+    /* Hide timestamps on very small screens */
+    .discord_timestamp {
+        display: none;
+    }
+
+    /* Modal footer buttons stack */
+    .ec_modal_footer {
+        flex-direction: column;
+        gap: 8px;
+    }
+
+    .ec_modal_footer_left,
+    .ec_modal_footer_right {
+        width: 100%;
+        flex-direction: column;
+    }
+
+    .ec_modal_footer button {
+        width: 100%;
+    }
+}
+
+/* ========================================= */
+/* STYLE MANAGER BUTTONS                     */
+/* ========================================= */
+.discord_settings #discord_open_style_editor,
+.discord_settings #discord_import_btn,
+.discord_settings #discord_export_btn {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    gap: 6px;
+    padding: 10px;
+    font-size: 0.85em;
+    margin: 0 !important;
 }
