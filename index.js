@@ -278,7 +278,7 @@
         `);
 
         // Use event delegation to ensure the handler works even if button is recreated
-        jQuery(document).off('click', '#ec_cancel_btn').on('click', '#ec_cancel_btn', function(e) {
+        jQuery(document).off('click', '#ec_cancel_btn').on('click', '#ec_cancel_btn', function (e) {
             e.preventDefault();
             e.stopPropagation();
             log('Cancel button clicked');
@@ -442,7 +442,7 @@ STRICTLY follow the format defined in the instruction. ${isNarratorStyle ? '' : 
                 const response = await context.ConnectionManagerRequestService.sendRequest(
                     profile.id,
                     messages,
-                    512, // max_tokens
+                    4096, // max_tokens
                     {
                         stream: false,
                         signal: abortController.signal,
@@ -473,7 +473,7 @@ STRICTLY follow the format defined in the instruction. ${isNarratorStyle ? '' : 
                         system: systemMessage,
                         prompt: truePrompt,
                         stream: false,
-                        options: { num_ctx: 2048, num_predict: 512, stop: ["</discordchat>"] }
+                        options: { num_ctx: 2048, num_predict: 4096, stop: ["</discordchat>"] }
                     }),
                     signal: abortController.signal
                 });
@@ -490,7 +490,7 @@ STRICTLY follow the format defined in the instruction. ${isNarratorStyle ? '' : 
                         { role: 'system', content: systemMessage },
                         { role: 'user', content: truePrompt }
                     ],
-                    temperature: 0.7, max_tokens: 500, stream: false
+                    temperature: 0.7, max_tokens: 4096, stream: false
                 };
 
                 const response = await fetch(targetEndpoint, {
