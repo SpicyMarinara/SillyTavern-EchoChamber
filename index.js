@@ -62,7 +62,7 @@
         };
     }
 
-    const generateDebounced = debounce(() => generateDiscordChat(), 500);
+    const generateDebounced = debounce(generateDiscordChat, 500);
 
     // ============================================================
     // UTILITY FUNCTIONS
@@ -247,13 +247,18 @@
     // GENERATION
     // ============================================================
 
-    async function generateDiscordChat() {
+    async function generateDiscordChat(force = false) {
         if (!settings.enabled) {
             if (discordBar) discordBar.hide();
             return;
         }
 
         if (discordBar) discordBar.show();
+
+        // Do not generate if the panel is collapsed (hidden), unless forced
+        if (settings.collapsed && !force) {
+            return;
+        }
 
         const context = SillyTavern.getContext();
         const chat = context.chat;
@@ -1719,6 +1724,17 @@ username: message
             // Immediately apply/remove collapsed class
             if (settings.collapsed) {
                 discordBar.addClass('ec_collapsed');
+
+                // Ensure no pending generation starts
+                clearTimeout(debounceTimeout);
+
+                // Abort any ongoing generation when toggled off
+                if (abortController) {
+                    userCancelled = true;
+                    abortController.abort();
+                    setStatus('');
+                    log('Generation aborted due to panel collapse');
+                }
             } else {
                 discordBar.removeClass('ec_collapsed');
             }
@@ -1743,7 +1759,7 @@ username: message
             } else if (btn.find('.fa-rotate-right').length) {
                 btn.find('i').addClass('fa-spin');
                 setTimeout(() => btn.find('i').removeClass('fa-spin'), 1000);
-                generateDebounced();
+                generateDebounced(true);
             } else if (btn.find('.fa-trash-can').length) {
                 // Clear button clicked
                 if (confirm('Clear generated chat and all cached commentary?')) {
