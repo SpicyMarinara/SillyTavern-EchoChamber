@@ -15,8 +15,7 @@
             <label class="checkbox_label" for="discord_enabled"
                 style="display: flex; align-items: center; gap: 10px; cursor: pointer; margin-bottom: 12px;">
                 <input id="discord_enabled" type="checkbox" class="checkbox">
-                <span style="font-weight: bold;"><i class="fa-solid fa-power-off"
-                        style="width: 18px; text-align: center; color: var(--SmartThemeQuoteColor);"></i> Enable</span>
+                <span style="font-weight: bold;">Enable EchoChamber</span>
             </label>
 
             <hr style="margin: 10px 0; opacity: 0.2;">
@@ -155,26 +154,44 @@
                     </div>
                 </div>
 
-                <!-- Include User Input -->
-                <div style="padding: 10px; background: rgba(0,0,0,0.1); border-radius: 6px;">
+                <!-- Auto-update On Messages -->
+                <div style="padding: 10px; background: rgba(0,0,0,0.1); border-radius: 6px; margin-bottom: 10px;">
+                    <label class="checkbox_label" for="discord_auto_update"
+                        style="display: flex; align-items: center; gap: 8px; cursor: pointer;">
+                        <input id="discord_auto_update" type="checkbox" class="checkbox">
+                        <span style="font-size: 0.9em;"><i class="fa-solid fa-sync"
+                                style="width: 16px; opacity: 0.8;"></i> Auto-update On Messages</span>
+                    </label>
+                </div>
+
+                <!-- Include Chat History -->
+                <div style="padding: 10px; background: rgba(0,0,0,0.1); border-radius: 6px; margin-bottom: 10px;">
                     <label class="checkbox_label" for="discord_include_user"
                         style="display: flex; align-items: center; gap: 8px; cursor: pointer;">
                         <input id="discord_include_user" type="checkbox" class="checkbox">
                         <span style="font-size: 0.9em;"><i class="fa-solid fa-comments"
-                                style="width: 16px; opacity: 0.8;"></i> Include User Input</span>
+                                style="width: 16px; opacity: 0.8;"></i> Include Chat History</span>
                     </label>
                     <div id="discord_context_depth_container"
                         style="margin-top: 8px; margin-left: 24px; display: none;">
-                        <label for="discord_context_depth" style="font-size: 0.8em; opacity: 0.8;">
+                        <label for="discord_context_depth" style="font-size: 0.8em; opacity: 0.8; display: block; margin-bottom: 4px;">
                             Context Depth:
                         </label>
-                        <select id="discord_context_depth" class="text_pole"
-                            style="width: auto; margin-left: 6px; font-size: 0.85em;">
-                            <option value="2">2 msgs</option>
-                            <option value="4">4 msgs</option>
-                            <option value="6">6 msgs</option>
-                            <option value="8">8 msgs</option>
-                        </select>
+                        <input id="discord_context_depth" type="number" class="text_pole" min="2" max="20" value="4"
+                            style="width: 80px; font-size: 0.85em;" title="Number of messages to include (2-20)">
+                    </div>
+                </div>
+
+                <!-- Include Past Generated EchoChambers -->
+                <div style="padding: 10px; background: rgba(0,0,0,0.1); border-radius: 6px;">
+                    <label class="checkbox_label" for="discord_include_past_echo"
+                        style="display: flex; align-items: center; gap: 8px; cursor: pointer;">
+                        <input id="discord_include_past_echo" type="checkbox" class="checkbox">
+                        <span style="font-size: 0.9em;"><i class="fa-solid fa-layer-group"
+                                style="width: 16px; opacity: 0.8;"></i> Include Past Generated EchoChambers</span>
+                    </label>
+                    <div style="margin-top: 6px; margin-left: 24px; font-size: 0.75em; opacity: 0.6;">
+                        Includes previous commentary in the prompt for new generations
                     </div>
                 </div>
             </div>
@@ -188,17 +205,18 @@
                     <i class="fa-solid fa-folder-tree"></i> Style Manager
                 </h4>
 
-                <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 8px;">
-                    <button id="discord_open_style_editor" class="menu_button"
-                        style="display: flex; align-items: center; justify-content: center; gap: 6px; padding: 10px; font-size: 0.85em;">
+                <div style="display: flex; justify-content: space-between; align-items: center;">
+                    <button id="discord_open_style_editor" class="menu_button">
                         <i class="fa-solid fa-palette"></i> Manage
                     </button>
-                    <input type="file" id="discord_import_file" accept=".md" style="display:none;">
-                    <button id="discord_import_btn" class="menu_button"
-                        style="display: flex; align-items: center; justify-content: center; gap: 6px; padding: 10px; font-size: 0.85em;">
+                    <button id="discord_import_btn" class="menu_button">
                         <i class="fa-solid fa-file-import"></i> Import
                     </button>
                 </div>
+                <div style="text-align: center; margin-top: 8px; font-size: 0.75em; opacity: 0.5; font-family: monospace;">
+                    v4.0.0
+                </div>
+                <input type="file" id="discord_import_file" accept=".md" style="display:none;">
             </div>
 
         </div>
