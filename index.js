@@ -1744,7 +1744,7 @@ username: message
                 btn.find('i').addClass('fa-spin');
                 setTimeout(() => btn.find('i').removeClass('fa-spin'), 1000);
                 generateDebounced();
-            } else if (btn.find('.fa-xmark').length) {
+            } else if (btn.find('.fa-trash-can').length) {
                 // Clear button clicked
                 if (confirm('Clear generated chat and all cached commentary?')) {
                     setDiscordText('');
