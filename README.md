@@ -3,7 +3,7 @@
 
 > **Bring your stories and conversations to life with a dynamic, AI-powered audience.**
 
-🆕 ***ver4.0.0***
+🆕 ***ver4.0.0*** (Credit: [SpicyMarina](https://github.com/SpicyMarinara))
 - Added the ability to toggle on/off auto-generation for new messages.
 - Added the ability to customize how many messages from the chat history are included in the prompt.
 - The hidden messages by the user will not be included in the context.
