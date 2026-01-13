@@ -42,6 +42,8 @@
         livestream: false,
         livestreamBatchSize: 20,
         livestreamMode: 'manual',
+        livestreamMinWait: 5,
+        livestreamMaxWait: 60,
         custom_styles: {},
         deleted_styles: []
     };
@@ -306,9 +308,11 @@
 
         setDiscordText(newContent);
 
-        // Schedule next message with random delay between 5-60 seconds
+        // Schedule next message with random delay between user-configured min/max seconds
+        const minWait = (settings.livestreamMinWait || 5) * 1000;
+        const maxWait = (settings.livestreamMaxWait || 60) * 1000;
         const randomValue = Math.random();
-        const delay = randomValue * (60000 - 5000) + 5000; // 5-60 seconds in ms
+        const delay = randomValue * (maxWait - minWait) + minWait;
         log('Next livestream message in', (delay / 1000).toFixed(1), 'seconds (random:', randomValue.toFixed(3), '). Queue:', livestreamQueue.length, 'remaining');
 
         livestreamTimer = setTimeout(() => displayNextLivestreamMessage(), delay);
@@ -838,6 +842,8 @@ STRICTLY follow the format defined in the instruction. ${isNarratorStyle ? '' : 
         // Livestream settings
         jQuery('#discord_livestream').prop('checked', settings.livestream || false);
         jQuery('#discord_livestream_batch_size').val(settings.livestreamBatchSize || 20);
+        jQuery('#discord_livestream_min_wait').val(settings.livestreamMinWait || 5);
+        jQuery('#discord_livestream_max_wait').val(settings.livestreamMaxWait || 60);
         jQuery('#discord_livestream_settings').toggle(settings.livestream || false);
 
         // Set livestream mode radio button
@@ -2062,6 +2068,41 @@ username: message
             log('Selected connection profile:', settings.preset);
         });
 
+        // OpenAI Compatible - URL
+        jQuery('#discord_openai_url').on('change', function () {
+            settings.openai_url = jQuery(this).val();
+            saveSettings();
+            log('OpenAI URL:', settings.openai_url);
+        });
+
+        // OpenAI Compatible - Model
+        jQuery('#discord_openai_model').on('change', function () {
+            settings.openai_model = jQuery(this).val();
+            saveSettings();
+            log('OpenAI Model:', settings.openai_model);
+        });
+
+        // OpenAI Compatible - Preset
+        jQuery('#discord_openai_preset').on('change', function () {
+            settings.openai_preset = jQuery(this).val();
+            saveSettings();
+            log('OpenAI Preset:', settings.openai_preset);
+        });
+
+        // Ollama - URL
+        jQuery('#discord_url').on('change', function () {
+            settings.url = jQuery(this).val();
+            saveSettings();
+            log('Ollama URL:', settings.url);
+        });
+
+        // Ollama - Model selection
+        jQuery('#discord_model_select').on('change', function () {
+            settings.model = jQuery(this).val();
+            saveSettings();
+            log('Ollama Model:', settings.model);
+        });
+
         // Include User Input toggle
         jQuery('#discord_include_user').on('change', function () {
             settings.includeUserInput = jQuery(this).prop('checked');
@@ -2115,6 +2156,20 @@ username: message
             settings.livestreamBatchSize = parseInt(jQuery(this).val()) || 20;
             saveSettings();
             log('Livestream batch size:', settings.livestreamBatchSize);
+        });
+
+        // Livestream minimum wait time
+        jQuery('#discord_livestream_min_wait').on('change', function () {
+            settings.livestreamMinWait = parseInt(jQuery(this).val()) || 5;
+            saveSettings();
+            log('Livestream min wait:', settings.livestreamMinWait);
+        });
+
+        // Livestream maximum wait time
+        jQuery('#discord_livestream_max_wait').on('change', function () {
+            settings.livestreamMaxWait = parseInt(jQuery(this).val()) || 60;
+            saveSettings();
+            log('Livestream max wait:', settings.livestreamMaxWait);
         });
 
         // Livestream mode radio buttons
@@ -2195,6 +2250,13 @@ username: message
 
                 // Don't auto-generate if we're currently loading/switching chats
                 if (isLoadingChat) return;
+
+                // Only trigger on AI character messages, not user messages
+                const lastMessage = ctx.chat[ctx.chat.length - 1];
+                if (!lastMessage || lastMessage.is_user) {
+                    // This is a user message or no message - don't auto-generate
+                    return;
+                }
 
                 // Determine if we should auto-generate
                 let shouldAutoGenerate = false;

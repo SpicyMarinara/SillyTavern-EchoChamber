@@ -3,10 +3,12 @@
 
 > **Bring your stories and conversations to life with a dynamic, AI-powered audience.**
 
-🆕 ***ver4.1.0*** (Credit: [SpicyMarinara](https://github.com/SpicyMarinara))
-- Added Livestream mode. Instead of displaying the entire chat feed at once, simulate a "livestream" by showing messages appear in the panel over time.
-- Added AO3/Wattpad style.
-- Minor bug fixes.
+## 🆕 What's New
+
+### ***ver4.1.1***
+- Fixed Generate Upon Receiving A New Message for Livestream triggering upon switching chats and starting new ones.
+- Fixed OpenAI/Ollama URL and model settings not being saved.
+- You can now edit timeframes from Livestream mode.
 
 ![Version](https://img.shields.io/badge/SillyTavern-v1.12%2B-blue)
 ![License](https://img.shields.io/badge/License-MIT-green)

@@ -219,6 +219,23 @@
                                 style="width: 80px; font-size: 0.85em;" title="Number of messages to generate per batch">
                         </div>
 
+                        <!-- Wait Time Range -->
+                        <div style="margin-bottom: 10px;">
+                            <label for="discord_livestream_min_wait" style="font-size: 0.8em; opacity: 0.8; display: block; margin-bottom: 4px;">
+                                <i class="fa-solid fa-clock" style="width: 14px;"></i> Minimum Wait Time (seconds):
+                            </label>
+                            <input id="discord_livestream_min_wait" type="number" class="text_pole" min="1" max="120" value="5"
+                                style="width: 80px; font-size: 0.85em;" title="Minimum seconds to wait between messages">
+                        </div>
+
+                        <div style="margin-bottom: 10px;">
+                            <label for="discord_livestream_max_wait" style="font-size: 0.8em; opacity: 0.8; display: block; margin-bottom: 4px;">
+                                <i class="fa-solid fa-clock" style="width: 14px;"></i> Maximum Wait Time (seconds):
+                            </label>
+                            <input id="discord_livestream_max_wait" type="number" class="text_pole" min="1" max="300" value="60"
+                                style="width: 80px; font-size: 0.85em;" title="Maximum seconds to wait between messages">
+                        </div>
+
                         <!-- Generation Mode -->
                         <div style="margin-bottom: 8px;">
                             <label style="font-size: 0.8em; opacity: 0.8; display: block; margin-bottom: 6px;">
@@ -259,7 +276,7 @@
                     </button>
                 </div>
                 <div style="text-align: center; margin-top: 8px; font-size: 0.75em; opacity: 0.5; font-family: monospace;">
-                    v4.1.0
+                    v4.1.1
                 </div>
                 <input type="file" id="discord_import_file" accept=".md" style="display:none;">
             </div>
