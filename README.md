@@ -3,7 +3,7 @@
 
 > **Bring your stories and conversations to life with a dynamic, AI-powered audience.**
 
-🆕 ***ver4.1.0*** (Credit: [SpicyMarinra](https://github.com/SpicyMarinara))
+🆕 ***ver4.1.0*** (Credit: [SpicyMarinara](https://github.com/SpicyMarinara))
 - Added Livestream mode. Instead of displaying the entire chat feed at once, simulate a "livestream" by showing messages appear in the panel over time.
 - Added AO3/Wattpad style.
 - Minor bug fixes.
