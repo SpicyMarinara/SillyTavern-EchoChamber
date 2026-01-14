@@ -69,7 +69,7 @@ export async function generateWithProfile(profileName, prompt, systemPrompt = ''
         const response = await context.ConnectionManagerRequestService.sendRequest(
             profile.id,  // profileId
             messages,    // prompt (messages array)  
-            500,         // maxTokens
+            context.main?.max_length || 500,         // maxTokens
             {
                 stream: false,
                 signal: abortController?.signal || null,

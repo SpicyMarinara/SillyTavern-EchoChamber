@@ -25,6 +25,7 @@
         url: 'http://localhost:11434',
         model: '',
         openai_url: 'http://localhost:1234/v1',
+        openai_key: '',
         openai_model: 'local-model',
         openai_preset: 'custom',
         userCount: 5,
@@ -377,7 +378,7 @@
         `);
 
         // Use event delegation to ensure the handler works even if button is recreated
-        jQuery(document).off('click', '#ec_cancel_btn').on('click', '#ec_cancel_btn', function(e) {
+        jQuery(document).off('click', '#ec_cancel_btn').on('click', '#ec_cancel_btn', function (e) {
             e.preventDefault();
             e.stopPropagation();
             log('Cancel button clicked');
@@ -560,7 +561,7 @@ STRICTLY follow the format defined in the instruction. ${isNarratorStyle ? '' : 
                 const response = await context.ConnectionManagerRequestService.sendRequest(
                     profile.id,
                     messages,
-                    512, // max_tokens
+                    context.main?.max_length || 512, // max_tokens
                     {
                         stream: false,
                         signal: abortController.signal,
@@ -591,7 +592,7 @@ STRICTLY follow the format defined in the instruction. ${isNarratorStyle ? '' : 
                         system: systemMessage,
                         prompt: truePrompt,
                         stream: false,
-                        options: { num_ctx: 2048, num_predict: 512, stop: ["</discordchat>"] }
+                        options: { num_ctx: context.main?.context_size || 2048, num_predict: context.main?.max_length || 512, stop: ["</discordchat>"] }
                     }),
                     signal: abortController.signal
                 });
@@ -608,12 +609,15 @@ STRICTLY follow the format defined in the instruction. ${isNarratorStyle ? '' : 
                         { role: 'system', content: systemMessage },
                         { role: 'user', content: truePrompt }
                     ],
-                    temperature: 0.7, max_tokens: 500, stream: false
+                    temperature: 0.7, max_tokens: context.main?.max_length || 500, stream: false
                 };
 
                 const response = await fetch(targetEndpoint, {
                     method: 'POST',
-                    headers: { 'Content-Type': 'application/json' },
+                    headers: {
+                        'Content-Type': 'application/json',
+                        ...(settings.openai_key ? { 'Authorization': `Bearer ${settings.openai_key}` } : {})
+                    },
                     body: JSON.stringify(payload),
                     signal: abortController.signal
                 });
@@ -819,6 +823,7 @@ STRICTLY follow the format defined in the instruction. ${isNarratorStyle ? '' : 
         jQuery('#discord_source').val(settings.source);
         jQuery('#discord_url').val(settings.url);
         jQuery('#discord_openai_url').val(settings.openai_url);
+        jQuery('#discord_openai_key').val(settings.openai_key);
         jQuery('#discord_openai_model').val(settings.openai_model);
         jQuery('#discord_openai_preset').val(settings.openai_preset || 'custom');
         jQuery('#discord_preset_select').val(settings.preset || '');
@@ -2061,11 +2066,17 @@ username: message
             log('Selected connection profile:', settings.preset);
         });
 
-        // OpenAI Compatible - URL
         jQuery('#discord_openai_url').on('change', function () {
             settings.openai_url = jQuery(this).val();
             saveSettings();
             log('OpenAI URL:', settings.openai_url);
+        });
+
+        // OpenAI Compatible - Key
+        jQuery('#discord_openai_key').on('change', function () {
+            settings.openai_key = jQuery(this).val();
+            saveSettings();
+            log('OpenAI Key saved');
         });
 
         // OpenAI Compatible - Model
