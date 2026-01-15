@@ -177,7 +177,8 @@
                     </label>
                     <div id="discord_context_depth_container"
                         style="margin-top: 8px; margin-left: 24px; display: none;">
-                        <label for="discord_context_depth" style="font-size: 0.8em; opacity: 0.8; display: block; margin-bottom: 4px;">
+                        <label for="discord_context_depth"
+                            style="font-size: 0.8em; opacity: 0.8; display: block; margin-bottom: 4px;">
                             Context Depth:
                         </label>
                         <input id="discord_context_depth" type="number" class="text_pole" min="2" max="20" value="4"
@@ -207,35 +208,42 @@
                                 style="width: 16px; opacity: 0.8;"></i> Livestream</span>
                     </label>
                     <div style="margin-top: 6px; margin-left: 24px; font-size: 0.75em; opacity: 0.6;">
-                        Instead of displaying the entire chat feed at once, simulate a "livestream" by showing messages appear in the panel over time
+                        Instead of displaying the entire chat feed at once, simulate a "livestream" by showing messages
+                        appear in the panel over time
                     </div>
 
                     <!-- Livestream Settings -->
                     <div id="discord_livestream_settings" style="margin-top: 10px; margin-left: 24px; display: none;">
                         <!-- Batch Size -->
                         <div style="margin-bottom: 10px;">
-                            <label for="discord_livestream_batch_size" style="font-size: 0.8em; opacity: 0.8; display: block; margin-bottom: 4px;">
+                            <label for="discord_livestream_batch_size"
+                                style="font-size: 0.8em; opacity: 0.8; display: block; margin-bottom: 4px;">
                                 <i class="fa-solid fa-boxes-stacked" style="width: 14px;"></i> Batch Size:
                             </label>
-                            <input id="discord_livestream_batch_size" type="number" class="text_pole" min="5" max="50" value="20"
-                                style="width: 80px; font-size: 0.85em;" title="Number of messages to generate per batch">
+                            <input id="discord_livestream_batch_size" type="number" class="text_pole" min="5" max="50"
+                                value="20" style="width: 80px; font-size: 0.85em;"
+                                title="Number of messages to generate per batch">
                         </div>
 
                         <!-- Wait Time Range -->
                         <div style="margin-bottom: 10px;">
-                            <label for="discord_livestream_min_wait" style="font-size: 0.8em; opacity: 0.8; display: block; margin-bottom: 4px;">
+                            <label for="discord_livestream_min_wait"
+                                style="font-size: 0.8em; opacity: 0.8; display: block; margin-bottom: 4px;">
                                 <i class="fa-solid fa-clock" style="width: 14px;"></i> Minimum Wait Time (seconds):
                             </label>
-                            <input id="discord_livestream_min_wait" type="number" class="text_pole" min="1" max="120" value="5"
-                                style="width: 80px; font-size: 0.85em;" title="Minimum seconds to wait between messages">
+                            <input id="discord_livestream_min_wait" type="number" class="text_pole" min="1" max="120"
+                                value="5" style="width: 80px; font-size: 0.85em;"
+                                title="Minimum seconds to wait between messages">
                         </div>
 
                         <div style="margin-bottom: 10px;">
-                            <label for="discord_livestream_max_wait" style="font-size: 0.8em; opacity: 0.8; display: block; margin-bottom: 4px;">
+                            <label for="discord_livestream_max_wait"
+                                style="font-size: 0.8em; opacity: 0.8; display: block; margin-bottom: 4px;">
                                 <i class="fa-solid fa-clock" style="width: 14px;"></i> Maximum Wait Time (seconds):
                             </label>
-                            <input id="discord_livestream_max_wait" type="number" class="text_pole" min="1" max="300" value="60"
-                                style="width: 80px; font-size: 0.85em;" title="Maximum seconds to wait between messages">
+                            <input id="discord_livestream_max_wait" type="number" class="text_pole" min="1" max="300"
+                                value="60" style="width: 80px; font-size: 0.85em;"
+                                title="Maximum seconds to wait between messages">
                         </div>
 
                         <!-- Generation Mode -->
@@ -243,16 +251,22 @@
                             <label style="font-size: 0.8em; opacity: 0.8; display: block; margin-bottom: 6px;">
                                 <i class="fa-solid fa-clapperboard" style="width: 14px;"></i> Generation Mode:
                             </label>
-                            <label class="checkbox_label" style="display: flex; align-items: center; gap: 8px; cursor: pointer; margin-bottom: 4px;">
-                                <input type="radio" name="discord_livestream_mode" value="manual" class="radio" id="discord_livestream_manual" checked>
+                            <label class="checkbox_label"
+                                style="display: flex; align-items: center; gap: 8px; cursor: pointer; margin-bottom: 4px;">
+                                <input type="radio" name="discord_livestream_mode" value="manual" class="radio"
+                                    id="discord_livestream_manual" checked>
                                 <span style="font-size: 0.85em;">Manual Upon Clicking Regenerate Chat</span>
                             </label>
-                            <label class="checkbox_label" style="display: flex; align-items: center; gap: 8px; cursor: pointer; margin-bottom: 4px;">
-                                <input type="radio" name="discord_livestream_mode" value="onMessage" class="radio" id="discord_livestream_onmessage">
+                            <label class="checkbox_label"
+                                style="display: flex; align-items: center; gap: 8px; cursor: pointer; margin-bottom: 4px;">
+                                <input type="radio" name="discord_livestream_mode" value="onMessage" class="radio"
+                                    id="discord_livestream_onmessage">
                                 <span style="font-size: 0.85em;">Generate Upon Receiving A New Message</span>
                             </label>
-                            <label class="checkbox_label" style="display: flex; align-items: center; gap: 8px; cursor: pointer;">
-                                <input type="radio" name="discord_livestream_mode" value="onComplete" class="radio" id="discord_livestream_oncomplete">
+                            <label class="checkbox_label"
+                                style="display: flex; align-items: center; gap: 8px; cursor: pointer;">
+                                <input type="radio" name="discord_livestream_mode" value="onComplete" class="radio"
+                                    id="discord_livestream_oncomplete">
                                 <span style="font-size: 0.85em;">Generate A New Batch After The Last One Finishes</span>
                             </label>
                         </div>
@@ -277,7 +291,8 @@
                         <i class="fa-solid fa-file-import"></i> Import
                     </button>
                 </div>
-                <div style="text-align: center; margin-top: 8px; font-size: 0.75em; opacity: 0.5; font-family: monospace;">
+                <div
+                    style="text-align: center; margin-top: 8px; font-size: 0.75em; opacity: 0.5; font-family: monospace;">
                     v4.1.2
                 </div>
                 <input type="file" id="discord_import_file" accept=".md" style="display:none;">

@@ -470,6 +470,9 @@
         const messageCommentaries = (metadata && metadata.messageCommentaries) || {};
         let history = '';
 
+        // Maximum history size in characters (~2000 tokens to stay safe within context limits)
+        const MAX_HISTORY_CHARS = 8000;
+
         if (settings.includePastEchoChambers && metadata && metadata.messageCommentaries) {
             // Include past generated commentary
             for (let i = 0; i < historyMessages.length; i++) {
@@ -489,7 +492,21 @@
             history = historyMessages.map(msg => `${msg.name}: ${cleanMessage(msg.mes)}`).join('\n');
         }
 
-        log('History messages:', historyMessages.map(m => ({ name: m.name, is_user: m.is_user })));
+        // Trim history if it exceeds maximum size to prevent context overflow
+        if (history.length > MAX_HISTORY_CHARS) {
+            log(`History too long (${history.length} chars), trimming to ${MAX_HISTORY_CHARS} chars`);
+            // Trim from the beginning (oldest content) and add a note
+            const trimmedHistory = history.slice(-MAX_HISTORY_CHARS);
+            // Find the first complete line after trimming
+            const firstNewline = trimmedHistory.indexOf('\n');
+            if (firstNewline > 0 && firstNewline < 200) {
+                history = '[...earlier context trimmed...]\n' + trimmedHistory.slice(firstNewline + 1);
+            } else {
+                history = '[...earlier context trimmed...]\n' + trimmedHistory;
+            }
+        }
+
+        log('History messages:', historyMessages.map(m => ({ name: m.name, is_user: m.is_user })), 'final length:', history.length);
 
         // Determine user count and message count
         const isNarratorStyle = ['nsfw_ava', 'nsfw_kai', 'hypebot'].includes(settings.style);
@@ -540,6 +557,11 @@ Think about it first.
 
 STRICTLY follow the format defined in the instruction. ${isNarratorStyle ? '' : settings.livestream ? `Output exactly ${messageCount} messages from ${actualUserCount} users.` : `Output exactly ${userCount} messages.`} Do NOT continue the story or roleplay as the characters. The created by you people are allowed to interact with each other over your generated feed. Do NOT output preamble like "Here are the messages". Just output the content directly.`;
 
+        // Calculate appropriate max_tokens based on message count
+        // Each message typically needs 50-100 tokens, so we allocate ~200 per message with a minimum of 2048 for safety
+        const calculatedMaxTokens = Math.max(2048, userCount * 200 + 1024);
+        log('Calculated max_tokens:', calculatedMaxTokens, 'for', userCount, 'messages');
+
         try {
             let result = '';
 
@@ -557,11 +579,11 @@ STRICTLY follow the format defined in the instruction. ${isNarratorStyle ? '' : 
                     { role: 'user', content: truePrompt }
                 ];
 
-                log(`Generating with profile: ${profile.name}`);
+                log(`Generating with profile: ${profile.name}, max_tokens: ${calculatedMaxTokens}`);
                 const response = await context.ConnectionManagerRequestService.sendRequest(
                     profile.id,
                     messages,
-                    context.main?.max_length || 512, // max_tokens
+                    calculatedMaxTokens, // Dynamic max_tokens based on message count
                     {
                         stream: false,
                         signal: abortController.signal,
@@ -592,7 +614,7 @@ STRICTLY follow the format defined in the instruction. ${isNarratorStyle ? '' : 
                         system: systemMessage,
                         prompt: truePrompt,
                         stream: false,
-                        options: { num_ctx: context.main?.context_size || 2048, num_predict: context.main?.max_length || 512, stop: ["</discordchat>"] }
+                        options: { num_ctx: context.main?.context_size || 4096, num_predict: calculatedMaxTokens, stop: ["</discordchat>"] }
                     }),
                     signal: abortController.signal
                 });
@@ -609,7 +631,7 @@ STRICTLY follow the format defined in the instruction. ${isNarratorStyle ? '' : 
                         { role: 'system', content: systemMessage },
                         { role: 'user', content: truePrompt }
                     ],
-                    temperature: 0.7, max_tokens: context.main?.max_length || 500, stream: false
+                    temperature: 0.7, max_tokens: calculatedMaxTokens, stream: false
                 };
 
                 const response = await fetch(targetEndpoint, {
