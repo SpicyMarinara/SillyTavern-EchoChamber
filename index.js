@@ -78,11 +78,10 @@
     // UTILITY FUNCTIONS
     // ============================================================
 
-    // Debug logging disabled for production
-    // Enable by uncommenting the console calls below
-    function log(...args) { /* console.log(`[${EXTENSION_NAME}]`, ...args); */ }
-    function warn(...args) { /* console.warn(`[${EXTENSION_NAME}]`, ...args); */ }
-    function error(...args) { console.error(`[${EXTENSION_NAME}]`, ...args); } // Keep errors visible
+    // Debug logging enabled for troubleshooting
+    function log(...args) { console.log(`[${EXTENSION_NAME}]`, ...args); }
+    function warn(...args) { console.warn(`[${EXTENSION_NAME}]`, ...args); }
+    function error(...args) { console.error(`[${EXTENSION_NAME}]`, ...args); }
 
     function setDiscordText(html) {
         if (!discordContent) return;
@@ -192,8 +191,13 @@
             // If livestream is in onComplete mode, let it handle its own generation cycle
         } else {
             // When loading a chat, restore cached commentary
-            stopLivestream();
-            restoreCachedCommentary();
+            // Don't stop an active livestream - let it finish
+            if (!livestreamActive) {
+                stopLivestream();
+                restoreCachedCommentary();
+            } else {
+                log('Skipping restore - livestream is active');
+            }
         }
     }
 
@@ -242,6 +246,12 @@
     }
 
     function restoreCachedCommentary() {
+        // Don't restore if a livestream is currently active - let it finish
+        if (livestreamActive) {
+            log('Skipping cache restore - livestream is active');
+            return;
+        }
+
         const metadata = getChatMetadata();
         log('Attempting to restore cached commentary, metadata:', metadata);
         if (metadata && metadata.generatedHtml) {
@@ -278,6 +288,14 @@
         livestreamQueue = [...messages];
         livestreamActive = true;
 
+        // Check if container already exists, create only if needed
+        const container = discordContent.find('.discord_container');
+        if (container.length === 0) {
+            // No existing content, create fresh container
+            setDiscordText('<div class="discord_container" style="padding-top: 10px;"></div>');
+        }
+        // If container exists, we'll append to it (keeping previous messages)
+
         log('Starting livestream with', livestreamQueue.length, 'messages');
 
         // Display first message immediately
@@ -289,6 +307,9 @@
             livestreamActive = false;
             log('Livestream completed');
 
+            // Save the final HTML state now that livestream is complete
+            updateSavedHtml();
+
             // If in onComplete mode, trigger next batch generation
             if (settings.livestream && settings.livestreamMode === 'onComplete') {
                 log('Livestream onComplete mode: triggering next batch');
@@ -298,15 +319,40 @@
         }
 
         const message = livestreamQueue.shift();
+        log('Displaying livestream message, queue remaining:', livestreamQueue.length);
 
-        // Get current content
-        const currentContent = discordContent ? discordContent.html() : '';
+        try {
+            // Find the container and prepend message to it
+            const container = discordContent.find('.discord_container');
+            if (container.length > 0) {
+                // Remove animation class from any existing animated messages first
+                container.find('.ec_livestream_message').each(function() {
+                    jQuery(this).replaceWith(jQuery(this).contents());
+                });
 
-        // Prepend new message with animation class
-        const messageHtml = `<div class="ec_livestream_message">${message}</div>`;
-        const newContent = messageHtml + currentContent;
+                // Create a temporary wrapper for the message with animation class
+                const tempWrapper = jQuery('<div class="ec_livestream_message"></div>').html(message);
+                container.prepend(tempWrapper);
 
-        setDiscordText(newContent);
+                // After animation completes, unwrap the message from the animation div
+                setTimeout(() => {
+                    try {
+                        tempWrapper.replaceWith(tempWrapper.contents());
+                } catch (err) {
+                    warn('Error in animation cleanup:', err);
+                }
+            }, 350); // Slightly longer than 300ms animation duration
+        } else {
+            // Fallback: create container if it doesn't exist
+            log('Container not found, creating new one');
+            const messageHtml = `<div class="ec_livestream_message">${message}</div>`;
+            setDiscordText(`<div class="discord_container" style="padding-top: 10px;">${messageHtml}</div>`);
+                discordContent[0].scrollTop = 0;
+            }
+        } catch (err) {
+            error('Error displaying livestream message:', err);
+            // Continue anyway - don't let one message break the whole stream
+        }
 
         // Schedule next message with random delay between user-configured min/max seconds
         const minWait = (settings.livestreamMinWait || 5) * 1000;
@@ -347,6 +393,25 @@
             timestamp: Date.now()
         });
         log('Saved generated commentary to metadata');
+    }
+
+    function updateSavedHtml() {
+        // Update saved HTML with current displayed content to preserve livestream order
+        try {
+            if (!discordContent || !discordContent[0]) return;
+
+            const currentHtml = discordContent.html();
+            if (!currentHtml) return;
+
+            const metadata = getChatMetadata();
+            if (metadata) {
+                metadata.generatedHtml = currentHtml;
+                saveChatMetadata(metadata);
+            }
+        } catch (err) {
+            // Don't let save errors stop the livestream
+            warn('Error updating saved HTML:', err);
+        }
     }
 
     // ============================================================
@@ -1914,6 +1979,7 @@ username: message
             } else if (btn.find('.fa-trash-can').length) {
                 // Clear button clicked
                 if (confirm('Clear generated chat and all cached commentary?')) {
+                    stopLivestream();
                     setDiscordText('');
                     clearCachedCommentary();
                     if (typeof toastr !== 'undefined') toastr.success('Chat and cache cleared');

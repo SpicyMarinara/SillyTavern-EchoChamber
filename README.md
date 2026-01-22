@@ -5,8 +5,9 @@
 
 ## 🆕 What's New
 
-### ***ver4.1.2***
-- Fixed the bug that prevented you from generating the chat feed if the last message in the chat was the user's.
+### ***v4.1.3***
+- Fixed the bug in the display of the livestream messages.
+- You can now stop the livestream messages and clear them from cache with the trash bin icon.
 
 ![Version](https://img.shields.io/badge/SillyTavern-v1.12%2B-blue)
 ![License](https://img.shields.io/badge/License-MIT-green)
