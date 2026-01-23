@@ -331,7 +331,7 @@
                 });
 
                 // Create a temporary wrapper for the message with animation class
-                const tempWrapper = jQuery('<div class="ec_livestream_message"></div>').html(message);
+                const tempWrapper = jQuery('<div class="ec_livestream_message"></div>').append(jQuery(message));
                 container.prepend(tempWrapper);
 
                 // After animation completes, unwrap the message from the animation div
