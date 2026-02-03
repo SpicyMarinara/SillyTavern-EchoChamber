@@ -64,6 +64,7 @@
     let eventsBound = false;  // Prevent duplicate event listener registration
     let userCancelled = false; // Track user-initiated cancellations
     let isLoadingChat = false; // Track when we're loading/switching chats to prevent auto-generation
+    let isGenerating = false; // Track when generation is in progress to prevent concurrent requests
 
     // Livestream state
     let livestreamQueue = []; // Queue of messages to display
@@ -739,11 +740,21 @@
             return;
         }
 
+        // If already generating, abort the previous request first
+        if (isGenerating && abortController) {
+            abortController.abort();
+            // Wait a tiny bit for the abort to process
+            await new Promise(resolve => setTimeout(resolve, 50));
+        }
+
         if (discordBar) discordBar.show();
 
         const context = SillyTavern.getContext();
         const chat = context.chat;
         if (!chat || chat.length === 0) return;
+
+        // Mark generation as in progress
+        isGenerating = true;
 
         // Create new AbortController BEFORE setting up the Cancel button
         userCancelled = false;
@@ -1187,7 +1198,12 @@ STRICTLY follow the format defined in the instruction. ${isNarratorStyle ? '' : 
                 }
             }
 
+            // Mark generation as complete
+            isGenerating = false;
+
         } catch (err) {
+            // Mark generation as complete (even on error)
+            isGenerating = false;
             setStatus('');
             const isAbort = err.name === 'AbortError' || err.message?.includes('aborted') || userCancelled;
             if (isAbort || userCancelled) {
@@ -2862,6 +2878,19 @@ username: message
 
                 // Don't auto-generate if we're currently loading/switching chats
                 if (isLoadingChat) return;
+
+                // Don't auto-generate if character editor is open (editing character cards)
+                const characterEditor = document.querySelector('#character_popup');
+                const isCharacterEditorOpen = characterEditor && characterEditor.style.display !== 'none' && characterEditor.offsetParent !== null;
+                if (isCharacterEditorOpen) return;
+
+                // Don't auto-generate if we're in the character creation/management area
+                const charCreatePanel = document.querySelector('#rm_ch_create_block');
+                const isCreatingCharacter = charCreatePanel && charCreatePanel.style.display !== 'none' && charCreatePanel.offsetParent !== null;
+                if (isCreatingCharacter) return;
+
+                // Don't auto-generate if there's no valid chatId (indicates we're not in an actual conversation)
+                if (!ctx.chatId) return;
 
                 // Only trigger on AI character messages, not user messages
                 const lastMessage = ctx.chat[ctx.chat.length - 1];
