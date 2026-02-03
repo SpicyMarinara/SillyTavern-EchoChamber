@@ -20,6 +20,7 @@
 
     const defaultSettings = {
         enabled: true,
+        paused: false,
         source: 'default',
         preset: '',
         url: 'http://localhost:11434',
@@ -40,6 +41,10 @@
         includeUserInput: false,
         contextDepth: 4,
         includePastEchoChambers: false,
+        includePersona: false,
+        includeCharacterDescription: false,
+        includeSummary: false,
+        includeWorldInfo: false,
         livestream: false,
         livestreamBatchSize: 20,
         livestreamMode: 'manual',
@@ -64,6 +69,11 @@
     let livestreamQueue = []; // Queue of messages to display
     let livestreamTimer = null; // Timer for displaying next message
     let livestreamActive = false; // Whether livestream is currently displaying messages
+
+    // Pop-out window state
+    let popoutWindow = null; // Reference to pop-out window
+    let popoutDiscordBar = null; // Reference to panel in pop-out window
+    let popoutDiscordContent = null; // Reference to content in pop-out window
 
     // Simple debounce
     function debounce(func, wait) {
@@ -102,6 +112,12 @@
         if (chatBlock.length) {
             const newScrollTop = chatBlock[0].scrollHeight - (chatBlock.outerHeight() + originalScrollBottom);
             chatBlock.scrollTop(newScrollTop);
+        }
+
+        // Sync to popout window if active
+        if (popoutWindow && !popoutWindow.closed && popoutDiscordContent) {
+            popoutDiscordContent.innerHTML = html;
+            popoutDiscordContent.scrollTo({ top: 0, behavior: 'smooth' });
         }
     }
 
@@ -245,13 +261,75 @@
     function restoreCachedCommentary() {
         const metadata = getChatMetadata();
         log('Attempting to restore cached commentary, metadata:', metadata);
-        if (metadata && metadata.generatedHtml) {
-            setDiscordText(metadata.generatedHtml);
-            log('Restored cached commentary from metadata, length:', metadata.generatedHtml.length);
-        } else {
+
+        if (!metadata || !metadata.generatedHtml) {
             setDiscordText('');
             log('No cached commentary found');
+            return;
         }
+
+        // Check if we need to resume a livestream that was interrupted
+        if (settings.livestream && metadata.fullGeneratedHtml && !metadata.livestreamComplete) {
+            // Livestream was in progress - figure out what's been shown vs what's remaining
+            const fullMessages = parseLivestreamMessages(metadata.fullGeneratedHtml);
+            const displayedMessages = parseLivestreamMessages(metadata.generatedHtml);
+
+            log('Livestream restore check: full messages:', fullMessages.length, 'displayed:', displayedMessages.length);
+
+            if (fullMessages.length > displayedMessages.length) {
+                // There are remaining messages to show
+                // First, display what was already shown
+                setDiscordText(metadata.generatedHtml);
+
+                // Calculate remaining messages (they're at the end of fullMessages since we prepend)
+                // Messages are prepended, so displayed ones are at the start of the container
+                // We need to find which ones from fullMessages haven't been shown yet
+                const remainingCount = fullMessages.length - displayedMessages.length;
+                const remainingMessages = fullMessages.slice(0, remainingCount); // First N are the ones not yet shown
+
+                log('Resuming livestream with', remainingMessages.length, 'remaining messages');
+
+                // Resume the livestream with remaining messages
+                livestreamQueue = remainingMessages;
+                livestreamActive = true;
+
+                // Start displaying remaining messages
+                displayNextLivestreamMessage();
+                return;
+            }
+        }
+
+        // Normal restore - either not livestream mode, or livestream was complete
+        setDiscordText(metadata.generatedHtml);
+        log('Restored cached commentary from metadata, length:', metadata.generatedHtml.length);
+    }
+
+    function getActiveCharacters(includeDisabled = false) {
+        const context = SillyTavern.getContext();
+
+        // Check if we're in a group chat
+        if (context.groupId && context.groups) {
+            const group = context.groups.find(g => g.id === context.groupId);
+            if (group && group.members) {
+                const characters = group.members
+                    .map(memberId => context.characters.find(c => c.avatar === memberId))
+                    .filter(char => char !== undefined);
+
+                if (includeDisabled) {
+                    return characters;
+                }
+
+                // Filter out disabled characters
+                return characters.filter(char => !group.disabled_members?.includes(char.avatar));
+            }
+        }
+
+        // Single character chat - return character at current index
+        if (context.characterId !== undefined && context.characters[context.characterId]) {
+            return [context.characters[context.characterId]];
+        }
+
+        return [];
     }
 
     // ============================================================
@@ -290,6 +368,13 @@
             livestreamActive = false;
             log('Livestream completed');
 
+            // Mark livestream as complete in metadata
+            const metadata = getChatMetadata();
+            if (metadata) {
+                metadata.livestreamComplete = true;
+                saveChatMetadata(metadata);
+            }
+
             // If in onComplete mode, trigger next batch generation
             if (settings.livestream && settings.livestreamMode === 'onComplete') {
                 log('Livestream onComplete mode: triggering next batch');
@@ -307,7 +392,45 @@
         const messageHtml = `<div class="ec_livestream_message">${message}</div>`;
         const newContent = messageHtml + currentContent;
 
-        setDiscordText(newContent);
+        // Get container for prepending (for popout sync)
+        const container = discordContent ? discordContent.find('.discord_container') : null;
+
+        if (container && container.length) {
+            // Remove animation class from existing messages first
+            container.find('.ec_livestream_message').removeClass('ec_livestream_message');
+
+            // Create and prepend new message
+            const tempWrapper = jQuery('<div class="ec_livestream_message"></div>').append(jQuery(message));
+            container.prepend(tempWrapper);
+
+            // Sync to popout window if active
+            if (popoutWindow && !popoutWindow.closed && popoutDiscordContent) {
+                const popoutContainer = popoutDiscordContent.querySelector('.discord_container');
+                if (popoutContainer) {
+                    // Remove animation class from popout messages
+                    popoutContainer.querySelectorAll('.ec_livestream_message').forEach(el => {
+                        el.classList.remove('ec_livestream_message');
+                    });
+
+                    // Create clone for popout
+                    const popoutWrapper = document.createElement('div');
+                    popoutWrapper.className = 'ec_livestream_message';
+                    popoutWrapper.innerHTML = message;
+                    popoutContainer.insertBefore(popoutWrapper, popoutContainer.firstChild);
+                }
+            }
+
+            // Update saved HTML with current displayed state
+            const currentDisplayedHtml = discordContent.html();
+            const metadata = getChatMetadata();
+            if (metadata) {
+                metadata.generatedHtml = currentDisplayedHtml;
+                saveChatMetadata(metadata);
+            }
+        } else {
+            // Fallback to setDiscordText
+            setDiscordText(newContent);
+        }
 
         // Schedule next message with random delay between user-configured min/max seconds
         const minWait = (settings.livestreamMinWait || 5) * 1000;
@@ -336,6 +459,257 @@
     }
 
     // ============================================================
+    // POP-OUT WINDOW FUNCTIONS
+    // ============================================================
+
+    function openPopoutWindow() {
+        // Check if window is already open
+        if (popoutWindow && !popoutWindow.closed) {
+            popoutWindow.focus();
+            return;
+        }
+
+        // Get current content
+        const currentContent = discordContent ? discordContent.html() : '';
+
+        // Create popup window
+        const width = 450;
+        const height = 700;
+        const left = window.screenX + window.outerWidth; // Position to the right of main window
+        const top = window.screenY;
+
+        popoutWindow = window.open('', 'EchoChamber_Popout',
+            `width=${width},height=${height},left=${left},top=${top},resizable=yes,scrollbars=yes`);
+
+        if (!popoutWindow) {
+            alert('Pop-up blocked! Please allow pop-ups for this site to use the pop-out feature.');
+            return;
+        }
+
+        // Build the popup HTML
+        popoutWindow.document.write(`
+<!DOCTYPE html>
+<html>
+<head>
+    <title>EchoChamber - Pop Out</title>
+    <style>
+        * { box-sizing: border-box; margin: 0; padding: 0; }
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+            background: #1a1a2e;
+            color: #e0e0e0;
+            height: 100vh;
+            display: flex;
+            flex-direction: column;
+            overflow: hidden;
+        }
+        .popout-header {
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            padding: 12px 16px;
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            flex-shrink: 0;
+        }
+        .popout-title {
+            font-size: 16px;
+            font-weight: 600;
+            color: white;
+        }
+        .popout-controls {
+            display: flex;
+            gap: 8px;
+            align-items: center;
+        }
+        .popout-btn {
+            background: rgba(255,255,255,0.2);
+            border: none;
+            color: white;
+            padding: 6px 12px;
+            border-radius: 4px;
+            cursor: pointer;
+            font-size: 12px;
+            transition: background 0.2s;
+        }
+        .popout-btn:hover {
+            background: rgba(255,255,255,0.3);
+        }
+        .style-select {
+            background: rgba(255,255,255,0.2);
+            border: 1px solid rgba(255,255,255,0.3);
+            color: white;
+            padding: 6px 10px;
+            border-radius: 4px;
+            font-size: 12px;
+            cursor: pointer;
+        }
+        .style-select option {
+            background: #2a2a4e;
+            color: white;
+        }
+        .popout-content {
+            flex: 1;
+            overflow-y: auto;
+            padding: 16px;
+            background: #16213e;
+        }
+        /* Discord-style message styling */
+        .discord_container { display: flex; flex-direction: column; gap: 8px; }
+        .discord_message {
+            display: flex;
+            gap: 10px;
+            padding: 8px 12px;
+            border-radius: 6px;
+            background: rgba(255,255,255,0.03);
+            animation: fadeIn 0.3s ease-out;
+        }
+        @keyframes fadeIn {
+            from { opacity: 0; transform: translateY(-10px); }
+            to { opacity: 1; transform: translateY(0); }
+        }
+        .discord_avatar {
+            width: 36px;
+            height: 36px;
+            border-radius: 50%;
+            flex-shrink: 0;
+            background: linear-gradient(135deg, #667eea, #764ba2);
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            font-weight: bold;
+            font-size: 14px;
+            color: white;
+        }
+        .discord_content { flex: 1; min-width: 0; }
+        .discord_header { display: flex; gap: 8px; align-items: baseline; margin-bottom: 4px; }
+        .discord_username { font-weight: 600; color: #7289da; font-size: 14px; }
+        .discord_timestamp { font-size: 11px; color: #72767d; }
+        .discord_text { font-size: 14px; line-height: 1.4; word-wrap: break-word; }
+        .ec_livestream_message {
+            animation: slideIn 0.5s ease-out;
+        }
+        @keyframes slideIn {
+            from { opacity: 0; transform: translateY(-20px); }
+            to { opacity: 1; transform: translateY(0); }
+        }
+    </style>
+</head>
+<body>
+    <div class="popout-header">
+        <span class="popout-title">🗣️ EchoChamber</span>
+        <div class="popout-controls">
+            <select class="style-select" id="popout-style-select">
+                <option value="">Loading styles...</option>
+            </select>
+            <button class="popout-btn" id="dock-btn" title="Return to SillyTavern">📌 Dock to ST</button>
+        </div>
+    </div>
+    <div class="popout-content" id="popout-discord-content">
+        ${currentContent}
+    </div>
+</body>
+</html>
+        `);
+        popoutWindow.document.close();
+
+        // Get references to popout elements
+        popoutDiscordContent = popoutWindow.document.getElementById('popout-discord-content');
+
+        // Setup dock button
+        const dockBtn = popoutWindow.document.getElementById('dock-btn');
+        dockBtn.addEventListener('click', () => {
+            closePopoutWindow();
+        });
+
+        // Setup style selector
+        const styleSelect = popoutWindow.document.getElementById('popout-style-select');
+        populatePopoutStyleSelector(styleSelect);
+
+        // Handle window close
+        popoutWindow.addEventListener('beforeunload', () => {
+            popoutWindow = null;
+            popoutDiscordBar = null;
+            popoutDiscordContent = null;
+        });
+
+        log('Popout window opened');
+    }
+
+    function closePopoutWindow() {
+        if (popoutWindow && !popoutWindow.closed) {
+            popoutWindow.close();
+        }
+        popoutWindow = null;
+        popoutDiscordBar = null;
+        popoutDiscordContent = null;
+        log('Popout window closed');
+    }
+
+    async function populatePopoutStyleSelector(selectElement) {
+        if (!selectElement) return;
+
+        // Get built-in styles
+        const builtInStyles = [
+            { value: 'twitch', label: '🎮 Discord/Twitch' },
+            { value: 'twitter', label: '🐦 Twitter/X' },
+            { value: 'ao3_wattpad', label: '📚 AO3/Wattpad' },
+            { value: 'breaking_news', label: '📺 Breaking News' },
+            { value: 'mst3k', label: '🎬 MST3K' },
+            { value: 'nsfw_ava', label: '💋 NSFW Ava' },
+            { value: 'nsfw_kai', label: '🔥 NSFW Kai' },
+            { value: 'hypebot', label: '🤖 HypeBot' },
+            { value: 'thoughtful', label: '🤔 Thoughtful' },
+            { value: 'dumb_and_dumber', label: '🤪 Dumb & Dumber' },
+            { value: 'doomscrollers', label: '😰 Doomscrollers' }
+        ];
+
+        // Clear and populate
+        selectElement.innerHTML = '';
+
+        // Add built-in styles
+        builtInStyles.forEach(style => {
+            const option = document.createElement('option');
+            option.value = style.value;
+            option.textContent = style.label;
+            if (style.value === settings.style) option.selected = true;
+            selectElement.appendChild(option);
+        });
+
+        // Add custom styles if any
+        if (settings.custom_styles && Object.keys(settings.custom_styles).length > 0) {
+            const optgroup = document.createElement('optgroup');
+            optgroup.label = '✨ Custom Styles';
+            Object.keys(settings.custom_styles).forEach(styleName => {
+                const option = document.createElement('option');
+                option.value = styleName;
+                option.textContent = styleName;
+                if (styleName === settings.style) option.selected = true;
+                optgroup.appendChild(option);
+            });
+            selectElement.appendChild(optgroup);
+        }
+
+        // Handle style change from popout
+        selectElement.addEventListener('change', (e) => {
+            const newStyle = e.target.value;
+            settings.style = newStyle;
+
+            // Update main window selector if exists
+            const mainSelector = document.querySelector('#discord_style_select');
+            if (mainSelector) mainSelector.value = newStyle;
+
+            // Update quick bar selector if exists
+            const quickSelector = document.querySelector('.ec_quick_bar select');
+            if (quickSelector) quickSelector.value = newStyle;
+
+            // Save settings
+            SillyTavern.getContext().saveSettingsDebounced();
+
+            log('Style changed from popout to:', newStyle);
+        });
+    }
+
+    // ============================================================
     // GENERATION FUNCTIONS
     // ============================================================
 
@@ -357,6 +731,11 @@
     async function generateDiscordChat() {
         if (!settings.enabled) {
             if (discordBar) discordBar.hide();
+            return;
+        }
+
+        // If paused, don't generate but keep panel visible
+        if (settings.paused) {
             return;
         }
 
@@ -530,6 +909,73 @@
 
         const stylePrompt = await loadChatStyle(settings.style || 'twitch');
 
+        // Build additional context if enabled (persona, characters, summary, world info)
+        let additionalContext = '';
+        if (settings.includePersona || settings.includeCharacterDescription || settings.includeSummary || settings.includeWorldInfo) {
+            const contextParts = [];
+
+            // Include persona if enabled
+            if (settings.includePersona && context.personas) {
+                const activePersona = Object.values(context.personas).find(p => p.name === context.name1);
+                if (activePersona && activePersona.description) {
+                    contextParts.push(`<user_persona>\n${activePersona.description}\n</user_persona>`);
+                }
+            }
+
+            // Include character descriptions if enabled
+            if (settings.includeCharacterDescription) {
+                const activeCharacters = getActiveCharacters();
+                if (activeCharacters.length > 0) {
+                    const charDescriptions = activeCharacters
+                        .filter(char => char.description)
+                        .map(char => `<character name="${char.name}">\n${char.description}\n</character>`)
+                        .join('\n\n');
+                    if (charDescriptions) {
+                        contextParts.push(charDescriptions);
+                    }
+                }
+            }
+
+            // Include summary if enabled (from Summarize extension)
+            if (settings.includeSummary) {
+                try {
+                    // Try to get summary from chat metadata or extension settings
+                    const memorySettings = context.extensionSettings?.memory;
+                    if (memorySettings) {
+                        // Look for summary in recent chat messages
+                        const chatWithSummary = context.chat?.slice().reverse().find(m => m.extra?.memory);
+                        if (chatWithSummary?.extra?.memory) {
+                            contextParts.push(`<summary>\n${chatWithSummary.extra.memory}\n</summary>`);
+                            log('Added summary from chat memory');
+                        }
+                    }
+                } catch (e) {
+                    log('Could not get summary:', e);
+                }
+            }
+
+            // Include world info if enabled
+            if (settings.includeWorldInfo) {
+                try {
+                    // Get world info entries that are currently active
+                    const worldInfoSettings = context.extensionSettings?.worldInfo;
+                    if (context.getWorldInfoPrompt) {
+                        const worldInfoPrompt = await context.getWorldInfoPrompt();
+                        if (worldInfoPrompt && worldInfoPrompt.trim()) {
+                            contextParts.push(`<world_info>\n${worldInfoPrompt}\n</world_info>`);
+                            log('Added world info, length:', worldInfoPrompt.length);
+                        }
+                    }
+                } catch (e) {
+                    log('Could not get world info:', e);
+                }
+            }
+
+            if (contextParts.length > 0) {
+                additionalContext = contextParts.join('\n\n') + '\n\n';
+            }
+        }
+
         // Simple system message
         const systemMessage = 'You are an excellent creator of fake chat feeds that react dynamically to the user\'s conversation context.';
 
@@ -543,7 +989,7 @@
             }
         }
 
-        const truePrompt = `<story_context>
+        const truePrompt = `${additionalContext}<story_context>
 ${history}
 </story_context>
 
@@ -858,6 +1304,10 @@ STRICTLY follow the format defined in the instruction. ${isNarratorStyle ? '' : 
         jQuery('#discord_include_user').prop('checked', settings.includeUserInput);
         jQuery('#discord_context_depth').val(settings.contextDepth || 4);
         jQuery('#discord_include_past_echo').prop('checked', settings.includePastEchoChambers || false);
+        jQuery('#discord_include_persona').prop('checked', settings.includePersona || false);
+        jQuery('#discord_include_character_description').prop('checked', settings.includeCharacterDescription || false);
+        jQuery('#discord_include_summary').prop('checked', settings.includeSummary || false);
+        jQuery('#discord_include_world_info').prop('checked', settings.includeWorldInfo || false);
 
         // Livestream settings
         jQuery('#discord_livestream').prop('checked', settings.livestream || false);
@@ -1610,11 +2060,12 @@ username: message
         discordBar = jQuery('<div id="discordBar"></div>');
         discordQuickBar = jQuery('<div id="discordQuickSettings"></div>');
 
-        // Header Left - Toggle button and Live indicator
+        // Header Left - Power button (enable/disable), Collapse arrow, and Live indicator
         const leftGroup = jQuery('<div class="ec_header_left"></div>');
-        const toggleBtn = jQuery('<div class="ec_toggle_btn" title="Toggle On/Off"><i class="fa-solid fa-power-off"></i></div>');
+        const powerBtn = jQuery('<div class="ec_power_btn" title="Enable/Disable EchoChamber"><i class="fa-solid fa-power-off"></i></div>');
+        const collapseBtn = jQuery('<div class="ec_collapse_btn" title="Collapse/Expand Panel"><i class="fa-solid fa-chevron-down"></i></div>');
         const liveIndicator = jQuery('<div class="ec_live_indicator" id="ec_live_indicator"><i class="fa-solid fa-circle"></i> LIVE</div>');
-        leftGroup.append(toggleBtn).append(liveIndicator);
+        leftGroup.append(powerBtn).append(collapseBtn).append(liveIndicator);
 
         // Header Right - All icon buttons (Refresh first, then layout, users, font)
         const rightGroup = jQuery('<div class="ec_header_right"></div>');
@@ -1661,6 +2112,9 @@ username: message
             const isSelected = pos.toLowerCase() === currentPos ? ' selected' : '';
             layoutMenu.append(`<div class="ec_menu_item${isSelected}" data-val="${pos.toLowerCase()}"><i class="fa-solid fa-arrow-${icon}"></i> ${pos}</div>`);
         });
+        // Add Pop Out option
+        const popoutSelected = currentPos === 'popout' ? ' selected' : '';
+        layoutMenu.append(`<div class="ec_menu_item${popoutSelected}" data-val="popout"><i class="fa-solid fa-arrow-up-right-from-square"></i> Pop Out</div>`);
 
         // Populate User Count Menu with current selection highlighted
         const userMenu = usersBtn.find('.ec_user_menu');
@@ -1715,6 +2169,15 @@ username: message
 
     function updateApplyLayout() {
         if (!discordBar) return;
+
+        // If fully disabled (via settings checkbox), hide the panel entirely
+        if (!settings.enabled) {
+            discordBar.hide();
+            return;
+        }
+
+        // Show panel if enabled
+        discordBar.show();
 
         const pos = settings.position || 'bottom';
 
@@ -1791,27 +2254,48 @@ username: message
             discordBar.removeClass('ec_collapsed');
         }
 
-        // Hide panel completely if disabled
-        if (!settings.enabled) {
-            discordBar.hide();
+        // Add paused visual state class (panel stays visible, generation is paused)
+        if (settings.paused) {
+            discordBar.addClass('ec_disabled');
         } else {
-            discordBar.show();
+            discordBar.removeClass('ec_disabled');
         }
 
-        updateToggleIcon();
+        updatePanelIcons();
     }
 
-    function updateToggleIcon() {
+    function updatePanelIcons() {
         if (!discordBar) return;
-        const btn = discordBar.find('.ec_toggle_btn i');
-        // Icon shows collapse state, not enabled state
-        if (settings.collapsed) {
-            btn.removeClass('fa-power-off').addClass('fa-power-off');
-            discordBar.find('.ec_toggle_btn').css('color', 'rgba(255, 255, 255, 0.4)');
+
+        // Update power button - shows paused state
+        const powerBtn = discordBar.find('.ec_power_btn');
+        if (!settings.paused) {
+            powerBtn.css('color', 'var(--ec-accent)');
+            powerBtn.attr('title', 'Toggle On/Off (Currently ON)');
         } else {
-            btn.removeClass('fa-power-off').addClass('fa-power-off');
-            discordBar.find('.ec_toggle_btn').css('color', 'var(--ec-accent)');
+            powerBtn.css('color', 'rgba(255, 255, 255, 0.3)');
+            powerBtn.attr('title', 'Toggle On/Off (Currently OFF)');
         }
+
+        // Update collapse button - shows collapsed state with arrow direction
+        const collapseBtn = discordBar.find('.ec_collapse_btn i');
+        const pos = settings.position || 'bottom';
+        if (settings.collapsed) {
+            // When collapsed, arrow points toward expansion direction
+            if (pos === 'bottom') collapseBtn.removeClass('fa-chevron-down fa-chevron-up fa-chevron-left fa-chevron-right').addClass('fa-chevron-up');
+            else if (pos === 'top') collapseBtn.removeClass('fa-chevron-down fa-chevron-up fa-chevron-left fa-chevron-right').addClass('fa-chevron-down');
+            else if (pos === 'left') collapseBtn.removeClass('fa-chevron-down fa-chevron-up fa-chevron-left fa-chevron-right').addClass('fa-chevron-right');
+            else if (pos === 'right') collapseBtn.removeClass('fa-chevron-down fa-chevron-up fa-chevron-left fa-chevron-right').addClass('fa-chevron-left');
+            discordBar.find('.ec_collapse_btn').css('opacity', '0.5');
+        } else {
+            // When expanded, arrow points toward collapse direction
+            if (pos === 'bottom') collapseBtn.removeClass('fa-chevron-down fa-chevron-up fa-chevron-left fa-chevron-right').addClass('fa-chevron-down');
+            else if (pos === 'top') collapseBtn.removeClass('fa-chevron-down fa-chevron-up fa-chevron-left fa-chevron-right').addClass('fa-chevron-up');
+            else if (pos === 'left') collapseBtn.removeClass('fa-chevron-down fa-chevron-up fa-chevron-left fa-chevron-right').addClass('fa-chevron-left');
+            else if (pos === 'right') collapseBtn.removeClass('fa-chevron-down fa-chevron-up fa-chevron-left fa-chevron-right').addClass('fa-chevron-right');
+            discordBar.find('.ec_collapse_btn').css('opacity', '1');
+        }
+
         updateLiveIndicator();
     }
 
@@ -1906,8 +2390,29 @@ username: message
         if (eventsBound) return;
         eventsBound = true;
 
-        // QuickBar Toggle - only toggles panel collapse state
-        jQuery(document).on('click', '.ec_toggle_btn', function () {
+        // Power Button - toggles paused state (keeps panel visible, just pauses generation)
+        jQuery(document).on('click', '.ec_power_btn', function () {
+            settings.paused = !settings.paused;
+
+            if (settings.paused) {
+                // Pause: stop any ongoing generation (but keep panel visible)
+                stopLivestream();
+                if (abortController) {
+                    abortController.abort();
+                    abortController = null;
+                }
+                discordBar.addClass('ec_disabled');
+            } else {
+                // Unpause: remove disabled state
+                discordBar.removeClass('ec_disabled');
+            }
+
+            updatePanelIcons();
+            saveSettings();
+        });
+
+        // Collapse Button - only toggles panel collapse state (visual only)
+        jQuery(document).on('click', '.ec_collapse_btn', function () {
             settings.collapsed = !settings.collapsed;
 
             // Immediately apply/remove collapsed class
@@ -1917,7 +2422,7 @@ username: message
                 discordBar.removeClass('ec_collapsed');
             }
 
-            updateToggleIcon();
+            updatePanelIcons();
             saveSettings();
         });
 
@@ -1961,15 +2466,36 @@ username: message
 
             if (!wasActive) {
                 trigger.addClass('active');
-                // Position menu below the trigger
+                // Position menu - check if panel is at bottom position
                 const rect = trigger[0].getBoundingClientRect();
-                menu.css({
-                    position: 'fixed',
-                    top: rect.bottom + 'px',
-                    left: rect.left + 'px',
-                    width: rect.width + 'px',
-                    display: 'block'
-                });
+                const isBottomPosition = settings.position === 'bottom';
+                const menuHeight = menu.outerHeight() || 300; // Estimate if not visible
+
+                if (isBottomPosition) {
+                    // Open upward when panel is at bottom
+                    menu.css({
+                        position: 'fixed',
+                        bottom: (window.innerHeight - rect.top) + 'px',
+                        top: 'auto',
+                        left: rect.left + 'px',
+                        width: Math.max(rect.width, 200) + 'px',
+                        display: 'block',
+                        maxHeight: (rect.top - 20) + 'px',
+                        overflowY: 'auto'
+                    });
+                } else {
+                    // Open downward for other positions
+                    menu.css({
+                        position: 'fixed',
+                        top: rect.bottom + 'px',
+                        bottom: 'auto',
+                        left: rect.left + 'px',
+                        width: Math.max(rect.width, 200) + 'px',
+                        display: 'block',
+                        maxHeight: (window.innerHeight - rect.bottom - 20) + 'px',
+                        overflowY: 'auto'
+                    });
+                }
             } else {
                 trigger.removeClass('active');
                 menu.hide();
@@ -1998,17 +2524,23 @@ username: message
                 parent.find('.ec_menu_item').removeClass('selected');
                 jQuery(this).addClass('selected');
                 updateStyleIndicator();
-                if (settings.enabled) {
+                if (settings.enabled && !settings.paused) {
                     const styleObj = getAllStyles().find(s => s.val === val);
                     const styleName = styleObj ? styleObj.label : val;
                     if (typeof toastr !== 'undefined') toastr.info(`Style: ${styleName}`);
                     generateDebounced();
                 }
             } else if (parent.hasClass('ec_layout_menu')) {
-                settings.position = val;
-                saveSettings();
-                updateApplyLayout();
-                jQuery('#discord_position').val(val);
+                if (val === 'popout') {
+                    // Open popout window
+                    openPopoutWindow();
+                    // Don't change the position setting, just close menu
+                } else {
+                    settings.position = val;
+                    saveSettings();
+                    updateApplyLayout();
+                    jQuery('#discord_position').val(val);
+                }
             } else if (parent.hasClass('ec_user_menu')) {
                 settings.userCount = parseInt(val);
                 saveSettings();
@@ -2030,11 +2562,29 @@ username: message
             jQuery('.ec_style_dropdown_trigger').removeClass('active');
         });
 
-        // Settings Panel Bindings
+        // Settings Panel Bindings - this fully enables/disables the extension (shows/hides panel)
         jQuery('#discord_enabled').on('change', function () {
             settings.enabled = jQuery(this).prop('checked');
+
+            if (!settings.enabled) {
+                // Full disable: stop generation and hide panel
+                stopLivestream();
+                if (abortController) {
+                    abortController.abort();
+                    abortController = null;
+                }
+                if (discordBar) discordBar.hide();
+            } else {
+                // Enable: remove paused state and reapply layout (which shows the panel)
+                settings.paused = false;
+                if (discordBar) {
+                    discordBar.removeClass('ec_disabled');
+                }
+                updateApplyLayout();
+            }
+
             saveSettings();
-            updateApplyLayout();
+            updatePanelIcons();
         });
 
         jQuery('#discord_style').on('change', function () {
@@ -2052,9 +2602,17 @@ username: message
         });
 
         jQuery('#discord_position').on('change', function () {
-            settings.position = jQuery(this).val();
-            saveSettings();
-            updateApplyLayout();
+            const newPosition = jQuery(this).val();
+            if (newPosition === 'popout') {
+                // Open popout window
+                openPopoutWindow();
+                // Reset to previous position (don't actually set position to 'popout')
+                jQuery(this).val(settings.position || 'bottom');
+            } else {
+                settings.position = newPosition;
+                saveSettings();
+                updateApplyLayout();
+            }
         });
 
         jQuery('#discord_user_count').on('change', function () {
@@ -2157,6 +2715,34 @@ username: message
             settings.includePastEchoChambers = jQuery(this).prop('checked');
             saveSettings();
             log('Include past EchoChambers:', settings.includePastEchoChambers);
+        });
+
+        // Include Persona toggle
+        jQuery('#discord_include_persona').on('change', function () {
+            settings.includePersona = jQuery(this).prop('checked');
+            saveSettings();
+            log('Include persona:', settings.includePersona);
+        });
+
+        // Include Character Description toggle
+        jQuery('#discord_include_character_description').on('change', function () {
+            settings.includeCharacterDescription = jQuery(this).prop('checked');
+            saveSettings();
+            log('Include character description:', settings.includeCharacterDescription);
+        });
+
+        // Include Summary toggle
+        jQuery('#discord_include_summary').on('change', function () {
+            settings.includeSummary = jQuery(this).prop('checked');
+            saveSettings();
+            log('Include summary:', settings.includeSummary);
+        });
+
+        // Include World Info toggle
+        jQuery('#discord_include_world_info').on('change', function () {
+            settings.includeWorldInfo = jQuery(this).prop('checked');
+            saveSettings();
+            log('Include world info:', settings.includeWorldInfo);
         });
 
         // Livestream toggle

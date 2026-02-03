@@ -121,6 +121,7 @@
                             <option value="top">Top</option>
                             <option value="left">Left</option>
                             <option value="right">Right</option>
+                            <option value="popout">↗ Pop Out</option>
                         </select>
                     </div>
                 </div>
@@ -196,6 +197,40 @@
                     </label>
                     <div style="margin-top: 6px; margin-left: 24px; font-size: 0.75em; opacity: 0.6;">
                         Includes previous commentary in the prompt for new generations
+                    </div>
+                </div>
+
+                <!-- Include Context Options -->
+                <div style="padding: 10px; background: rgba(0,0,0,0.1); border-radius: 6px; margin-bottom: 10px;">
+                    <div style="font-size: 0.8em; font-weight: bold; margin-bottom: 8px; opacity: 0.9;">
+                        <i class="fa-solid fa-file-lines"></i> Include in Context
+                    </div>
+                    <label class="checkbox_label" for="discord_include_persona"
+                        style="display: flex; align-items: center; gap: 8px; cursor: pointer; margin-bottom: 6px;">
+                        <input id="discord_include_persona" type="checkbox" class="checkbox">
+                        <span style="font-size: 0.85em;"><i class="fa-solid fa-face-smile"
+                                style="width: 14px; opacity: 0.8;"></i> Persona</span>
+                    </label>
+                    <label class="checkbox_label" for="discord_include_character_description"
+                        style="display: flex; align-items: center; gap: 8px; cursor: pointer; margin-bottom: 6px;">
+                        <input id="discord_include_character_description" type="checkbox" class="checkbox">
+                        <span style="font-size: 0.85em;"><i class="fa-solid fa-address-card"
+                                style="width: 14px; opacity: 0.8;"></i> Character Description(s)</span>
+                    </label>
+                    <label class="checkbox_label" for="discord_include_summary"
+                        style="display: flex; align-items: center; gap: 8px; cursor: pointer; margin-bottom: 6px;">
+                        <input id="discord_include_summary" type="checkbox" class="checkbox">
+                        <span style="font-size: 0.85em;"><i class="fa-solid fa-scroll"
+                                style="width: 14px; opacity: 0.8;"></i> Summary (from Summarize ext.)</span>
+                    </label>
+                    <label class="checkbox_label" for="discord_include_world_info"
+                        style="display: flex; align-items: center; gap: 8px; cursor: pointer;">
+                        <input id="discord_include_world_info" type="checkbox" class="checkbox">
+                        <span style="font-size: 0.85em;"><i class="fa-solid fa-globe"
+                                style="width: 14px; opacity: 0.8;"></i> World Info / Lorebook</span>
+                    </label>
+                    <div style="margin-top: 6px; margin-left: 22px; font-size: 0.75em; opacity: 0.6;">
+                        Additional context to include when generating the chat feed
                     </div>
                 </div>
 
@@ -293,7 +328,7 @@
                 </div>
                 <div
                     style="text-align: center; margin-top: 8px; font-size: 0.75em; opacity: 0.5; font-family: monospace;">
-                    v4.1.2
+                    v4.2.0
                 </div>
                 <input type="file" id="discord_import_file" accept=".md" style="display:none;">
             </div>

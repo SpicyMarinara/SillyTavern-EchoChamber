@@ -161,7 +161,44 @@
     flex-shrink: 0;
 }
 
-/* Toggle Button (Power/Check) */
+/* Power Button (Enable/Disable Extension) */
+.ec_power_btn {
+    width: 28px;
+    height: 28px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    cursor: pointer;
+    color: var(--ec-accent);
+    transition: all 0.2s;
+    flex-shrink: 0;
+    border-radius: 4px;
+}
+
+.ec_power_btn:hover {
+    background: var(--ec-hover);
+}
+
+/* Collapse Button (Expand/Collapse Panel) */
+.ec_collapse_btn {
+    width: 24px;
+    height: 24px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    cursor: pointer;
+    color: var(--ec-text);
+    transition: all 0.2s;
+    flex-shrink: 0;
+    border-radius: 4px;
+    font-size: 0.8em;
+}
+
+.ec_collapse_btn:hover {
+    background: var(--ec-hover);
+}
+
+/* Legacy toggle button - kept for compatibility */
 .ec_toggle_btn {
     width: 28px;
     height: 28px;
@@ -189,8 +226,24 @@
     letter-spacing: 0.5px;
     padding: 2px 6px;
     border-radius: 3px;
-    margin-left: 8px;
+    margin-left: 4px;
     transition: all 0.3s ease;
+    flex-shrink: 1;
+    min-width: 0;
+    overflow: hidden;
+    white-space: nowrap;
+}
+
+/* Hide LIVE text when space is tight, show only icon */
+@media (max-width: 500px) {
+    .ec_live_indicator {
+        padding: 2px 4px;
+        font-size: 0;
+        gap: 0;
+    }
+    .ec_live_indicator i {
+        font-size: 10px;
+    }
 }
 
 .ec_live_indicator i {
@@ -230,6 +283,17 @@
     50% {
         opacity: 0.4;
     }
+}
+
+/* Disabled state (paused) */
+#discordBar.ec_disabled .ec_chat_container,
+#discordBar.ec_disabled .ec_message,
+#discordBar.ec_disabled .ec_typing_indicator {
+    opacity: 0.5;
+}
+
+#discordBar.ec_disabled .ec_live_indicator {
+    display: none;
 }
 
 /* Icon Buttons (all same style) */
@@ -1371,7 +1435,7 @@
     gap: 4px !important;
 }
 
-/* In collapsed side panels, only show the toggle button */
+/* In collapsed side panels, only show the power and collapse buttons */
 #discordBar.ec_left.ec_collapsed .ec_header_left,
 #discordBar.ec_right.ec_collapsed .ec_header_left {
     display: flex !important;
@@ -1384,7 +1448,11 @@
     display: none !important;
 }
 
-/* Make toggle button slightly larger for touch on collapsed state */
+/* Make buttons slightly larger for touch on collapsed state */
+#discordBar.ec_left.ec_collapsed .ec_power_btn,
+#discordBar.ec_right.ec_collapsed .ec_power_btn,
+#discordBar.ec_left.ec_collapsed .ec_collapse_btn,
+#discordBar.ec_right.ec_collapsed .ec_collapse_btn,
 #discordBar.ec_left.ec_collapsed .ec_toggle_btn,
 #discordBar.ec_right.ec_collapsed .ec_toggle_btn {
     width: 28px !important;

@@ -5,6 +5,15 @@
 
 ## 🆕 What's New
 
+### ***v4.2.0***
+- **Pop-out window**: Open the chat in a separate window to move to another screen
+- **Improved panel controls**: Power button now truly enables/disables the extension (hides panel AND stops generation). Separate collapse arrow for just hiding the panel
+- **Include Summary**: Option to include chat summary from the Summarize extension
+- **Include World Info**: Option to include active World Info/Lorebook entries
+- **Include Persona/Character**: Options to include persona and character descriptions in context (thanks to leDissolution!)
+- **Style dropdown fix**: Menu now opens upward when panel is at bottom position
+- **Livestream resume**: Messages continue rolling after page refresh
+
 ### ***ver4.1.4***
 - Increased max token limit calculations by user counts to prevent cut-offs.
 
