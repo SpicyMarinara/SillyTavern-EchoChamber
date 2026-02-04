@@ -2540,12 +2540,10 @@ username: message
                 parent.find('.ec_menu_item').removeClass('selected');
                 jQuery(this).addClass('selected');
                 updateStyleIndicator();
-                if (settings.enabled && !settings.paused) {
-                    const styleObj = getAllStyles().find(s => s.val === val);
-                    const styleName = styleObj ? styleObj.label : val;
-                    if (typeof toastr !== 'undefined') toastr.info(`Style: ${styleName}`);
-                    generateDebounced();
-                }
+                // Show toast notification about style change
+                const styleObj = getAllStyles().find(s => s.val === val);
+                const styleName = styleObj ? styleObj.label : val;
+                if (typeof toastr !== 'undefined') toastr.info(`Style: ${styleName}`);
             } else if (parent.hasClass('ec_layout_menu')) {
                 if (val === 'popout') {
                     // Open popout window
