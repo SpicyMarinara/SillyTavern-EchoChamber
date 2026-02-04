@@ -5,6 +5,10 @@
 
 ## 🆕 What's New
 
+### ***v4.2.1***
+- **General fixes**: Stopped generation on style change, fixed the limited chat history (it was getting trimmed)
+- **Proper structure:** Fixed the structure of generation calls
+
 ### ***v4.2.0***
 - **Pop-out window**: Open the chat in a separate window to move to another screen
 - **Improved panel controls**: Power button now truly enables/disables the extension (hides panel AND stops generation). Separate collapse arrow for just hiding the panel

@@ -822,7 +822,8 @@
         let historyMessages;
 
         if (settings.includeUserInput) {
-            const depth = Math.max(2, Math.min(20, settings.contextDepth || 4));
+            // Allow context depth up to 500 messages (no artificial cap)
+            const depth = Math.max(2, Math.min(500, settings.contextDepth || 4));
             // Filter out hidden messages first
             const visibleChat = chat.filter(msg => !msg.is_system);
 
@@ -858,45 +859,8 @@
         // Build history with past commentary if enabled
         const metadata = getChatMetadata();
         const messageCommentaries = (metadata && metadata.messageCommentaries) || {};
-        let history = '';
 
-        // Maximum history size in characters (~2000 tokens to stay safe within context limits)
-        const MAX_HISTORY_CHARS = 8000;
-
-        if (settings.includePastEchoChambers && metadata && metadata.messageCommentaries) {
-            // Include past generated commentary
-            for (let i = 0; i < historyMessages.length; i++) {
-                const msg = historyMessages[i];
-                const msgIndex = chat.indexOf(msg);
-                history += `<message="${msgIndex}">\n${msg.name}: ${cleanMessage(msg.mes)}\n</message="${msgIndex}">\n`;
-
-                // Add commentary if it exists for this message
-                if (messageCommentaries[msgIndex]) {
-                    history += `<commentary="${msgIndex}">\n${messageCommentaries[msgIndex]}\n</commentary="${msgIndex}">\n`;
-                }
-                if (i < historyMessages.length - 1) history += '\n';
-            }
-            log('Including past EchoChambers commentary');
-        } else {
-            // Just messages without past commentary
-            history = historyMessages.map(msg => `${msg.name}: ${cleanMessage(msg.mes)}`).join('\n');
-        }
-
-        // Trim history if it exceeds maximum size to prevent context overflow
-        if (history.length > MAX_HISTORY_CHARS) {
-            log(`History too long (${history.length} chars), trimming to ${MAX_HISTORY_CHARS} chars`);
-            // Trim from the beginning (oldest content) and add a note
-            const trimmedHistory = history.slice(-MAX_HISTORY_CHARS);
-            // Find the first complete line after trimming
-            const firstNewline = trimmedHistory.indexOf('\n');
-            if (firstNewline > 0 && firstNewline < 200) {
-                history = '[...earlier context trimmed...]\n' + trimmedHistory.slice(firstNewline + 1);
-            } else {
-                history = '[...earlier context trimmed...]\n' + trimmedHistory;
-            }
-        }
-
-        log('History messages:', historyMessages.map(m => ({ name: m.name, is_user: m.is_user })), 'final length:', history.length);
+        log('History messages:', historyMessages.map(m => ({ name: m.name, is_user: m.is_user })), 'count:', historyMessages.length);
 
         // Determine user count and message count
         const isNarratorStyle = ['nsfw_ava', 'nsfw_kai', 'hypebot'].includes(settings.style);
@@ -920,77 +884,101 @@
 
         const stylePrompt = await loadChatStyle(settings.style || 'twitch');
 
-        // Build additional context if enabled (persona, characters, summary, world info)
-        let additionalContext = '';
-        if (settings.includePersona || settings.includeCharacterDescription || settings.includeSummary || settings.includeWorldInfo) {
-            const contextParts = [];
+        // Build additional context for system message (persona, characters, summary, world info)
+        let additionalSystemContext = '';
+        const systemContextParts = [];
 
-            // Include persona if enabled
-            if (settings.includePersona && context.personas) {
-                const activePersona = Object.values(context.personas).find(p => p.name === context.name1);
-                if (activePersona && activePersona.description) {
-                    contextParts.push(`<user_persona>\n${activePersona.description}\n</user_persona>`);
+        // Include persona if enabled - use {{persona}} macro which ST substitutes automatically
+        if (settings.includePersona) {
+            const personaName = context.name1 || 'User';
+            // Use the {{persona}} macro - generateRaw will substitute it with actual persona description
+            systemContextParts.push(`<user_persona name="${personaName}">\n{{persona}}\n</user_persona>`);
+            log('Added persona macro to system message');
+        }
+
+        // Include character descriptions if enabled
+        if (settings.includeCharacterDescription) {
+            const activeCharacters = getActiveCharacters();
+            if (activeCharacters.length > 0) {
+                const charDescriptions = activeCharacters
+                    .filter(char => char.description)
+                    .map(char => `<character name="${char.name}">\n${char.description}\n</character>`)
+                    .join('\n\n');
+                if (charDescriptions) {
+                    systemContextParts.push(charDescriptions);
+                    log('Added character descriptions for', activeCharacters.length, 'characters');
                 }
-            }
-
-            // Include character descriptions if enabled
-            if (settings.includeCharacterDescription) {
-                const activeCharacters = getActiveCharacters();
-                if (activeCharacters.length > 0) {
-                    const charDescriptions = activeCharacters
-                        .filter(char => char.description)
-                        .map(char => `<character name="${char.name}">\n${char.description}\n</character>`)
-                        .join('\n\n');
-                    if (charDescriptions) {
-                        contextParts.push(charDescriptions);
-                    }
-                }
-            }
-
-            // Include summary if enabled (from Summarize extension)
-            if (settings.includeSummary) {
-                try {
-                    // Try to get summary from chat metadata or extension settings
-                    const memorySettings = context.extensionSettings?.memory;
-                    if (memorySettings) {
-                        // Look for summary in recent chat messages
-                        const chatWithSummary = context.chat?.slice().reverse().find(m => m.extra?.memory);
-                        if (chatWithSummary?.extra?.memory) {
-                            contextParts.push(`<summary>\n${chatWithSummary.extra.memory}\n</summary>`);
-                            log('Added summary from chat memory');
-                        }
-                    }
-                } catch (e) {
-                    log('Could not get summary:', e);
-                }
-            }
-
-            // Include world info if enabled
-            if (settings.includeWorldInfo) {
-                try {
-                    // Get world info entries that are currently active
-                    const worldInfoSettings = context.extensionSettings?.worldInfo;
-                    if (context.getWorldInfoPrompt) {
-                        const worldInfoPrompt = await context.getWorldInfoPrompt();
-                        if (worldInfoPrompt && worldInfoPrompt.trim()) {
-                            contextParts.push(`<world_info>\n${worldInfoPrompt}\n</world_info>`);
-                            log('Added world info, length:', worldInfoPrompt.length);
-                        }
-                    }
-                } catch (e) {
-                    log('Could not get world info:', e);
-                }
-            }
-
-            if (contextParts.length > 0) {
-                additionalContext = contextParts.join('\n\n') + '\n\n';
             }
         }
 
-        // Simple system message
-        const systemMessage = 'You are an excellent creator of fake chat feeds that react dynamically to the user\'s conversation context.';
+        // Include summary if enabled (from Summarize extension)
+        if (settings.includeSummary) {
+            try {
+                // Try to get summary from chat metadata or extension settings
+                const memorySettings = context.extensionSettings?.memory;
+                if (memorySettings) {
+                    // Look for summary in recent chat messages
+                    const chatWithSummary = context.chat?.slice().reverse().find(m => m.extra?.memory);
+                    if (chatWithSummary?.extra?.memory) {
+                        systemContextParts.push(`<summary>\n${chatWithSummary.extra.memory}\n</summary>`);
+                        log('Added summary from chat memory');
+                    }
+                }
+            } catch (e) {
+                log('Could not get summary:', e);
+            }
+        }
 
-        // Build dynamic prefix based on style type and mode
+        // Include world info (lorebook) if enabled - fetch using getWorldInfoPrompt like RPG Companion
+        if (settings.includeWorldInfo) {
+            try {
+                // Use SillyTavern's getWorldInfoPrompt to get activated lorebook entries
+                const getWorldInfoFn = context.getWorldInfoPrompt || (typeof window !== 'undefined' && window.getWorldInfoPrompt);
+                const currentChat = context.chat || chat;
+
+                if (typeof getWorldInfoFn === 'function' && currentChat && currentChat.length > 0) {
+                    const chatForWI = currentChat.map(x => x.mes || x.message || x).filter(m => m && typeof m === 'string');
+                    const result = await getWorldInfoFn(chatForWI, 8000, false);
+                    const worldInfoString = result?.worldInfoString || result;
+
+                    if (worldInfoString && typeof worldInfoString === 'string' && worldInfoString.trim()) {
+                        systemContextParts.push(`<world_info>\n${worldInfoString.trim()}\n</world_info>`);
+                        log('Added world info, length:', worldInfoString.length);
+                    } else {
+                        log('World info enabled but getWorldInfoPrompt returned empty');
+                    }
+                } else {
+                    // Fallback to activatedWorldInfo
+                    if (context.activatedWorldInfo && Array.isArray(context.activatedWorldInfo) && context.activatedWorldInfo.length > 0) {
+                        const worldInfoContent = context.activatedWorldInfo
+                            .filter(entry => entry && entry.content)
+                            .map(entry => entry.content)
+                            .join('\n\n');
+                        if (worldInfoContent.trim()) {
+                            systemContextParts.push(`<world_info>\n${worldInfoContent.trim()}\n</world_info>`);
+                            log('Added world info from activatedWorldInfo, entries:', context.activatedWorldInfo.length);
+                        }
+                    } else {
+                        log('World info enabled but no getWorldInfoPrompt function and no activatedWorldInfo');
+                    }
+                }
+            } catch (e) {
+                log('Error getting world info:', e);
+            }
+        }
+
+        if (systemContextParts.length > 0) {
+            additionalSystemContext = '\n\n<lore>\n' + systemContextParts.join('\n\n') + '\n</lore>';
+        }
+
+        // Build the system message with base prompt and additional context
+        const systemMessage = `<role>
+You are an excellent creator of fake chat feeds that react dynamically to the user's conversation context.
+</role>${additionalSystemContext}
+
+<chat_history>`;
+
+        // Build dynamic count instruction based on style type and mode
         let countInstruction = '';
         if (!isNarratorStyle) {
             if (settings.livestream) {
@@ -1000,19 +988,46 @@
             }
         }
 
-        const truePrompt = `${additionalContext}<story_context>
-${history}
-</story_context>
+        // Build the chat history as proper message array for APIs that support it
+        // This creates user/assistant turns from the conversation
+        const chatHistoryMessages = [];
 
-<instructions>
+        if (settings.includePastEchoChambers && metadata && metadata.messageCommentaries) {
+            // Include past generated commentary interleaved with messages
+            for (let i = 0; i < historyMessages.length; i++) {
+                const msg = historyMessages[i];
+                const msgIndex = chat.indexOf(msg);
+                const role = msg.is_user ? 'user' : 'assistant';
+                let content = cleanMessage(msg.mes);
+
+                // Add commentary if it exists for this message
+                if (messageCommentaries[msgIndex]) {
+                    content += `\n\n[Previous EchoChamber commentary: ${messageCommentaries[msgIndex]}]`;
+                }
+
+                chatHistoryMessages.push({ role, content });
+            }
+            log('Including past EchoChambers commentary in chat history');
+        } else {
+            // Build chat history with proper user/assistant roles (no names, just message content)
+            for (const msg of historyMessages) {
+                const role = msg.is_user ? 'user' : 'assistant';
+                const content = cleanMessage(msg.mes);
+                chatHistoryMessages.push({ role, content });
+            }
+        }
+
+        // Build the final user prompt (instructions only, context is in chat history)
+        const instructionsPrompt = `</chat_history>
+
+        <instructions>
 ${countInstruction}${stylePrompt}
 </instructions>
 
-How do you react to the story context above?
-
-Think about it first.
-
-STRICTLY follow the format defined in the instruction. ${isNarratorStyle ? '' : settings.livestream ? `Output exactly ${messageCount} messages from ${actualUserCount} users.` : `Output exactly ${userCount} messages.`} Do NOT continue the story or roleplay as the characters. The created by you people are allowed to interact with each other over your generated feed. Do NOT output preamble like "Here are the messages". Just output the content directly.`;
+<task>
+Based on the chat history above, generate fake chat feed reactions. Remember to think about them step-by-step first.
+STRICTLY follow the format defined in the instruction. ${isNarratorStyle ? '' : settings.livestream ? `Output exactly ${messageCount} messages from ${actualUserCount} users.` : `Output exactly ${userCount} messages.`} Do NOT continue the story or roleplay as the characters. The created by you people are allowed to interact with each other over your generated feed. Do NOT output preamble like "Here are the messages". Just output the content directly.
+</task>`;
 
         // Calculate appropriate max_tokens based on message count
         // Each message typically needs 50-100 tokens, so we allocate ~200 per message with a minimum of 2048 for safety
@@ -1023,7 +1038,7 @@ STRICTLY follow the format defined in the instruction. ${isNarratorStyle ? '' : 
             let result = '';
 
             if (settings.source === 'profile' && settings.preset) {
-                // PROFILE GENERATION
+                // PROFILE GENERATION - Build proper message array with chat history
                 const cm = context.extensionSettings?.connectionManager;
                 const profile = cm?.profiles?.find(p => p.name === settings.preset);
                 if (!profile) throw new Error(`Profile '${settings.preset}' not found`);
@@ -1031,12 +1046,20 @@ STRICTLY follow the format defined in the instruction. ${isNarratorStyle ? '' : 
                 // Use ConnectionManagerRequestService
                 if (!context.ConnectionManagerRequestService) throw new Error('ConnectionManagerRequestService not available');
 
+                // Build message array: system, chat history, then instructions
                 const messages = [
-                    { role: 'system', content: systemMessage },
-                    { role: 'user', content: truePrompt }
+                    { role: 'system', content: systemMessage }
                 ];
 
-                log(`Generating with profile: ${profile.name}, max_tokens: ${calculatedMaxTokens}`);
+                // Add chat history as proper user/assistant turns
+                for (const histMsg of chatHistoryMessages) {
+                    messages.push({ role: histMsg.role, content: histMsg.content });
+                }
+
+                // Add final instruction as user message
+                messages.push({ role: 'user', content: instructionsPrompt });
+
+                log(`Generating with profile: ${profile.name}, max_tokens: ${calculatedMaxTokens}, messages: ${messages.length}`);
                 const response = await context.ConnectionManagerRequestService.sendRequest(
                     profile.id,
                     messages,
@@ -1063,34 +1086,63 @@ STRICTLY follow the format defined in the instruction. ${isNarratorStyle ? '' : 
                     warn('No Ollama model selected');
                     return;
                 }
-                const response = await fetch(`${baseUrl}/api/generate`, {
+
+                // Build message array for Ollama chat endpoint (multi-turn)
+                const messages = [
+                    { role: 'system', content: systemMessage }
+                ];
+
+                // Add chat history as proper user/assistant turns
+                for (const histMsg of chatHistoryMessages) {
+                    messages.push({ role: histMsg.role, content: histMsg.content });
+                }
+
+                // Add final instruction as user message
+                messages.push({ role: 'user', content: instructionsPrompt });
+
+                log(`Generating with Ollama: ${modelToUse}, messages: ${messages.length}`);
+
+                // Use Ollama's chat endpoint for proper multi-turn conversation
+                const response = await fetch(`${baseUrl}/api/chat`, {
                     method: "POST",
                     headers: { "Content-Type": "application/json" },
                     body: JSON.stringify({
                         model: modelToUse,
-                        system: systemMessage,
-                        prompt: truePrompt,
+                        messages: messages,
                         stream: false,
-                        options: { num_ctx: context.main?.context_size || 4096, num_predict: calculatedMaxTokens, stop: ["</discordchat>"] }
+                        options: { num_ctx: context.main?.context_size || 4096, num_predict: calculatedMaxTokens }
                     }),
                     signal: abortController.signal
                 });
                 if (!response.ok) throw new Error(`Ollama API Error(${response.status})`);
                 const data = await response.json();
-                result = data.response;
+                result = data.message?.content || data.response || '';
             } else if (settings.source === 'openai') {
                 const baseUrl = settings.openai_url.replace(/\/$/, '');
                 const targetEndpoint = `${baseUrl}/chat/completions`;
 
+                // Build message array: system, chat history, then instructions
+                const messages = [
+                    { role: 'system', content: systemMessage }
+                ];
+
+                // Add chat history as proper user/assistant turns
+                for (const histMsg of chatHistoryMessages) {
+                    messages.push({ role: histMsg.role, content: histMsg.content });
+                }
+
+                // Add final instruction as user message
+                messages.push({ role: 'user', content: instructionsPrompt });
+
                 const payload = {
                     model: settings.openai_model || 'local-model',
-                    messages: [
-                        { role: 'system', content: systemMessage },
-                        { role: 'user', content: truePrompt }
-                    ],
-                    temperature: 0.7, max_tokens: calculatedMaxTokens, stream: false
+                    messages: messages,
+                    temperature: 0.7,
+                    max_tokens: calculatedMaxTokens,
+                    stream: false
                 };
 
+                log(`Generating with OpenAI compatible: ${settings.openai_model}, messages: ${messages.length}`);
                 const response = await fetch(targetEndpoint, {
                     method: 'POST',
                     headers: {
@@ -1104,10 +1156,26 @@ STRICTLY follow the format defined in the instruction. ${isNarratorStyle ? '' : 
                 const data = await response.json();
                 result = data.choices[0].message.content;
             } else {
-                // Default ST generation using context
+                // Default ST generation using context - build message array like RPG Companion
                 const { generateRaw } = context;
                 if (generateRaw) {
-                    result = await generateRaw({ systemPrompt: systemMessage, prompt: truePrompt, streaming: false });
+                    // Build message array: system, chat history, then instructions
+                    const messages = [
+                        { role: 'system', content: systemMessage }
+                    ];
+
+                    // Add chat history as proper user/assistant turns
+                    for (const histMsg of chatHistoryMessages) {
+                        messages.push({ role: histMsg.role, content: histMsg.content });
+                    }
+
+                    // Add final instruction as user message
+                    messages.push({ role: 'user', content: instructionsPrompt });
+
+                    log(`Generating with ST generateRaw, messages: ${messages.length}`);
+
+                    // Pass the message array directly - generateRaw can handle it and will substitute macros
+                    result = await generateRaw({ prompt: messages, quietToLoud: false });
                 } else {
                     throw new Error('generateRaw not available in context');
                 }
