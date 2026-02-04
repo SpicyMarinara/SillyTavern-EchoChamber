@@ -386,51 +386,62 @@
 
         const message = livestreamQueue.shift();
 
-        // Get current content
-        const currentContent = discordContent ? discordContent.html() : '';
+        // Get or create the container
+        let container = discordContent ? discordContent.find('.discord_container') : null;
 
-        // Prepend new message with animation class
-        const messageHtml = `<div class="ec_livestream_message">${message}</div>`;
-        const newContent = messageHtml + currentContent;
+        if (!container || !container.length) {
+            // No container exists - create one with current content
+            const currentContent = discordContent ? discordContent.html() : '';
+            discordContent.html(`<div class="discord_container" style="padding-top: 10px;">${currentContent}</div>`);
+            container = discordContent.find('.discord_container');
+        }
 
-        // Get container for prepending (for popout sync)
-        const container = discordContent ? discordContent.find('.discord_container') : null;
+        // Remove animation class from existing messages first
+        container.find('.ec_livestream_message').removeClass('ec_livestream_message');
 
-        if (container && container.length) {
-            // Remove animation class from existing messages first
-            container.find('.ec_livestream_message').removeClass('ec_livestream_message');
+        // Create and prepend new message
+        const tempWrapper = jQuery('<div class="ec_livestream_message"></div>').append(jQuery(message));
+        container.prepend(tempWrapper);
 
-            // Create and prepend new message
-            const tempWrapper = jQuery('<div class="ec_livestream_message"></div>').append(jQuery(message));
-            container.prepend(tempWrapper);
+        // Scroll to top of the EchoChamber panel to show new message
+        if (discordContent[0]) {
+            discordContent[0].scrollTo({ top: 0, behavior: 'smooth' });
+        }
 
-            // Sync to popout window if active
-            if (popoutWindow && !popoutWindow.closed && popoutDiscordContent) {
-                const popoutContainer = popoutDiscordContent.querySelector('.discord_container');
-                if (popoutContainer) {
-                    // Remove animation class from popout messages
-                    popoutContainer.querySelectorAll('.ec_livestream_message').forEach(el => {
-                        el.classList.remove('ec_livestream_message');
-                    });
-
-                    // Create clone for popout
-                    const popoutWrapper = document.createElement('div');
-                    popoutWrapper.className = 'ec_livestream_message';
-                    popoutWrapper.innerHTML = message;
-                    popoutContainer.insertBefore(popoutWrapper, popoutContainer.firstChild);
-                }
+        // Sync to popout window if active
+        if (popoutWindow && !popoutWindow.closed && popoutDiscordContent) {
+            let popoutContainer = popoutDiscordContent.querySelector('.discord_container');
+            if (!popoutContainer) {
+                // Create container in popout too
+                const wrapper = document.createElement('div');
+                wrapper.className = 'discord_container';
+                wrapper.style.paddingTop = '10px';
+                wrapper.innerHTML = popoutDiscordContent.innerHTML;
+                popoutDiscordContent.innerHTML = '';
+                popoutDiscordContent.appendChild(wrapper);
+                popoutContainer = wrapper;
             }
 
-            // Update saved HTML with current displayed state
-            const currentDisplayedHtml = discordContent.html();
-            const metadata = getChatMetadata();
-            if (metadata) {
-                metadata.generatedHtml = currentDisplayedHtml;
-                saveChatMetadata(metadata);
-            }
-        } else {
-            // Fallback to setDiscordText
-            setDiscordText(newContent);
+            // Remove animation class from popout messages
+            popoutContainer.querySelectorAll('.ec_livestream_message').forEach(el => {
+                el.classList.remove('ec_livestream_message');
+            });
+
+            // Create clone for popout
+            const popoutWrapper = document.createElement('div');
+            popoutWrapper.className = 'ec_livestream_message';
+            popoutWrapper.innerHTML = message;
+            popoutContainer.insertBefore(popoutWrapper, popoutContainer.firstChild);
+
+            popoutDiscordContent.scrollTo({ top: 0, behavior: 'smooth' });
+        }
+
+        // Update saved HTML with current displayed state
+        const currentDisplayedHtml = discordContent.html();
+        const metadata = getChatMetadata();
+        if (metadata) {
+            metadata.generatedHtml = currentDisplayedHtml;
+            saveChatMetadata(metadata);
         }
 
         // Schedule next message with random delay between user-configured min/max seconds
