@@ -412,6 +412,9 @@
     // ============================================================
 
     function stopLivestream() {
+        if (livestreamTimer || livestreamQueue.length > 0) {
+            console.warn(`[EchoChamber] stopLivestream called! Queue had ${livestreamQueue.length} messages remaining. Caller:`, new Error().stack?.split('\n')[2]?.trim());
+        }
         if (livestreamTimer) {
             clearTimeout(livestreamTimer);
             livestreamTimer = null;
@@ -441,6 +444,7 @@
     function displayNextLivestreamMessage() {
         if (livestreamQueue.length === 0) {
             livestreamActive = false;
+            console.warn('[EchoChamber] Livestream completed - all messages displayed');
             log('Livestream completed');
 
             // Mark livestream as complete in metadata
@@ -460,6 +464,7 @@
 
         try {
             const message = livestreamQueue.shift();
+            console.warn(`[EchoChamber] Displaying livestream message. Remaining in queue: ${livestreamQueue.length}`);
 
             // Get or create the container
             let container = discordContent ? discordContent.find('.discord_container') : null;
@@ -1312,6 +1317,20 @@ STRICTLY follow the format defined in the instruction. ${isNarratorStyle ? '' : 
 
                     try {
                         result = await generateRaw({ prompt: messages, quietToLoud: false });
+
+                        // generateRaw's cleanUpMessage may mangle our output or return near-empty
+                        // content when extended thinking is used (first text block is just '\n\n').
+                        // Always check if captured raw data has more content.
+                        if (capturedRawData) {
+                            const rawExtracted = extractTextFromResponse(capturedRawData);
+                            const rawTrimmed = rawExtracted?.trim() || '';
+                            const resultTrimmed = result?.trim() || '';
+                            if (rawTrimmed.length > resultTrimmed.length + 50) {
+                                console.warn('[EchoChamber] generateRaw returned truncated/mangled result (' +
+                                    resultTrimmed.length + ' chars). Using raw API data instead (' + rawTrimmed.length + ' chars).');
+                                result = rawExtracted;
+                            }
+                        }
                     } catch (genErr) {
                         if (genErr.message?.includes('No message generated') && capturedRawData) {
                             console.warn('[EchoChamber] generateRaw failed to parse response (likely extended thinking format). Extracting from raw API data.');
@@ -1388,6 +1407,7 @@ STRICTLY follow the format defined in the instruction. ${isNarratorStyle ? '' : 
                 messageCount++;
             }
 
+            console.warn(`[EchoChamber] Parsed ${parsedMessages.length} messages, displayed ${messageCount}/${userCount}`);
             log(`Parsed ${parsedMessages.length} messages, displayed ${messageCount}/${userCount}`);
 
             htmlBuffer += '</div>';
@@ -1400,6 +1420,7 @@ STRICTLY follow the format defined in the instruction. ${isNarratorStyle ? '' : 
                 if (settings.livestream) {
                     // Parse individual messages for livestream
                     const messages = parseLivestreamMessages(htmlBuffer);
+                    console.warn('[EchoChamber] Livestream mode: queuing', messages.length, 'messages for display');
                     log('Livestream mode: queuing', messages.length, 'messages');
 
                     // Save to metadata for persistence - save full html and mark as incomplete
