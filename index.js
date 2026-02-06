@@ -1122,11 +1122,33 @@ STRICTLY follow the format defined in the instruction. ${isNarratorStyle ? '' : 
                     }
                 );
 
-                // Parse response
-                if (response?.content) result = response.content;
-                else if (typeof response === 'string') result = response;
-                else if (response?.choices?.[0]?.message?.content) result = response.choices[0].message.content;
-                else result = JSON.stringify(response);
+                // Parse response - handle Anthropic's content array format (extended thinking)
+                if (response?.content) {
+                    if (Array.isArray(response.content)) {
+                        // Anthropic format: content is an array of blocks
+                        // e.g. [{type:'text',text:'...'}, {type:'thinking',thinking:'...'}]
+                        result = response.content
+                            .filter(block => block.type === 'text' && block.text)
+                            .map(block => block.text)
+                            .join('\n');
+                    } else {
+                        result = response.content;
+                    }
+                } else if (typeof response === 'string') {
+                    result = response;
+                } else if (response?.choices?.[0]?.message?.content) {
+                    const choiceContent = response.choices[0].message.content;
+                    if (Array.isArray(choiceContent)) {
+                        result = choiceContent
+                            .filter(block => block.type === 'text' && block.text)
+                            .map(block => block.text)
+                            .join('\n');
+                    } else {
+                        result = choiceContent;
+                    }
+                } else {
+                    result = JSON.stringify(response);
+                }
 
             } else if (settings.source === 'ollama') {
                 const baseUrl = settings.url.replace(/\/$/, '');
@@ -1203,7 +1225,15 @@ STRICTLY follow the format defined in the instruction. ${isNarratorStyle ? '' : 
                 });
                 if (!response.ok) throw new Error(`API Error: ${response.status}`);
                 const data = await response.json();
-                result = data.choices[0].message.content;
+                const openaiContent = data.choices[0].message.content;
+                if (Array.isArray(openaiContent)) {
+                    result = openaiContent
+                        .filter(block => block.type === 'text' && block.text)
+                        .map(block => block.text)
+                        .join('\n');
+                } else {
+                    result = openaiContent;
+                }
             } else {
                 // Default ST generation using context - build message array like RPG Companion
                 const { generateRaw } = context;

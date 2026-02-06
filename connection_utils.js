@@ -68,7 +68,7 @@ export async function generateWithProfile(profileName, prompt, systemPrompt = ''
         // Use the static sendRequest method with profile ID
         const response = await context.ConnectionManagerRequestService.sendRequest(
             profile.id,  // profileId
-            messages,    // prompt (messages array)  
+            messages,    // prompt (messages array)
             context.main?.max_length || 500,         // maxTokens
             {
                 stream: false,
@@ -88,14 +88,30 @@ export async function generateWithProfile(profileName, prompt, systemPrompt = ''
         console.log('[Extension-DiscordChat] response.content exists?', !!response?.content);
 
         if (response?.content) {
+            if (Array.isArray(response.content)) {
+                // Anthropic format with extended thinking: content is an array of blocks
+                debugLog('Returning response.content (array format - extracting text blocks)');
+                return response.content
+                    .filter(block => block.type === 'text' && block.text)
+                    .map(block => block.text)
+                    .join('\n');
+            }
             debugLog('Returning response.content');
             return response.content;
         } else if (typeof response === 'string') {
             debugLog('Returning response as string');
             return response;
         } else if (response?.choices?.[0]?.message?.content) {
+            const choiceContent = response.choices[0].message.content;
+            if (Array.isArray(choiceContent)) {
+                debugLog('Returning choices content (array format - extracting text blocks)');
+                return choiceContent
+                    .filter(block => block.type === 'text' && block.text)
+                    .map(block => block.text)
+                    .join('\n');
+            }
             debugLog('Returning response.choices[0].message.content');
-            return response.choices[0].message.content;
+            return choiceContent;
         } else if (response?.text) {
             debugLog('Returning response.text');
             return response.text;
