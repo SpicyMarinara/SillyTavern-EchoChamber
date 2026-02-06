@@ -84,41 +84,61 @@ export async function generateWithProfile(profileName, prompt, systemPrompt = ''
 
         // Debug: log the full response to see what we're getting
         console.log('[Extension-DiscordChat] Full response object:', JSON.stringify(response, null, 2));
-        console.log('[Extension-DiscordChat] Response keys:', Object.keys(response || {}));
-        console.log('[Extension-DiscordChat] response.content exists?', !!response?.content);
+        console.log('[Extension-DiscordChat] Response type:', typeof response, 'isArray:', Array.isArray(response));
+        console.log('[Extension-DiscordChat] Response keys:', response ? Object.keys(response) : 'null/undefined');
 
-        if (response?.content) {
-            if (Array.isArray(response.content)) {
-                // Anthropic format with extended thinking: content is an array of blocks
-                debugLog('Returning response.content (array format - extracting text blocks)');
-                return response.content
-                    .filter(block => block.type === 'text' && block.text)
-                    .map(block => block.text)
-                    .join('\n');
+        // Extract text from response - handle all possible API formats
+        function extractText(resp) {
+            if (!resp) return null;
+            if (typeof resp === 'string') return resp;
+
+            // Response itself is an array of content blocks
+            if (Array.isArray(resp)) {
+                const texts = resp
+                    .filter(b => b && b.type === 'text' && typeof b.text === 'string')
+                    .map(b => b.text);
+                if (texts.length > 0) return texts.join('\n');
             }
-            debugLog('Returning response.content');
-            return response.content;
-        } else if (typeof response === 'string') {
-            debugLog('Returning response as string');
-            return response;
-        } else if (response?.choices?.[0]?.message?.content) {
-            const choiceContent = response.choices[0].message.content;
-            if (Array.isArray(choiceContent)) {
-                debugLog('Returning choices content (array format - extracting text blocks)');
-                return choiceContent
-                    .filter(block => block.type === 'text' && block.text)
-                    .map(block => block.text)
-                    .join('\n');
+
+            // response.content (string or array)
+            if (resp.content !== undefined && resp.content !== null) {
+                if (typeof resp.content === 'string') return resp.content;
+                if (Array.isArray(resp.content)) {
+                    const texts = resp.content
+                        .filter(b => b && b.type === 'text' && typeof b.text === 'string')
+                        .map(b => b.text);
+                    if (texts.length > 0) return texts.join('\n');
+                }
             }
-            debugLog('Returning response.choices[0].message.content');
-            return choiceContent;
-        } else if (response?.text) {
-            debugLog('Returning response.text');
-            return response.text;
-        } else {
-            debugWarn('Unexpected response format:', response);
-            throw new Error('Invalid response format from API');
+
+            // OpenAI choices format
+            if (resp.choices?.[0]?.message?.content) {
+                const c = resp.choices[0].message.content;
+                if (typeof c === 'string') return c;
+                if (Array.isArray(c)) {
+                    const texts = c
+                        .filter(b => b && b.type === 'text' && typeof b.text === 'string')
+                        .map(b => b.text);
+                    if (texts.length > 0) return texts.join('\n');
+                }
+            }
+
+            // Other common fields
+            if (typeof resp.text === 'string') return resp.text;
+            if (typeof resp.message === 'string') return resp.message;
+            if (resp.message?.content && typeof resp.message.content === 'string') return resp.message.content;
+
+            return null;
         }
+
+        const extracted = extractText(response);
+        if (extracted !== null) {
+            debugLog('Extracted text from response, length:', extracted.length);
+            return extracted;
+        }
+
+        debugWarn('Unexpected response format, could not extract text:', response);
+        throw new Error('Invalid response format from API');
 
     } catch (error) {
         debugWarn('Error generating with profile:', error);

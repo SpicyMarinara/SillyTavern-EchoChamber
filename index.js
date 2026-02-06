@@ -96,6 +96,64 @@
     function warn(...args) { /* console.warn(`[${EXTENSION_NAME}]`, ...args); */ }
     function error(...args) { console.error(`[${EXTENSION_NAME}]`, ...args); } // Keep errors visible
 
+    /**
+     * Extract text content from any API response format.
+     * Handles: Anthropic content arrays (extended thinking), OpenAI format,
+     * raw strings, and unknown shapes with deep extraction.
+     */
+    function extractTextFromResponse(response) {
+        if (!response) return '';
+
+        // 1. Response is already a plain string
+        if (typeof response === 'string') return response;
+
+        // 2. Response itself is an array of content blocks (e.g. extractData returned the content array directly)
+        if (Array.isArray(response)) {
+            const textParts = response
+                .filter(block => block && block.type === 'text' && typeof block.text === 'string')
+                .map(block => block.text);
+            if (textParts.length > 0) return textParts.join('\n');
+            // Fallback: maybe it's an array of strings
+            const stringParts = response.filter(item => typeof item === 'string');
+            if (stringParts.length > 0) return stringParts.join('\n');
+            return JSON.stringify(response);
+        }
+
+        // 3. response.content exists
+        if (response.content !== undefined && response.content !== null) {
+            // 3a. content is a string
+            if (typeof response.content === 'string') return response.content;
+            // 3b. content is an array of content blocks (Anthropic extended thinking format)
+            if (Array.isArray(response.content)) {
+                const textParts = response.content
+                    .filter(block => block && block.type === 'text' && typeof block.text === 'string')
+                    .map(block => block.text);
+                if (textParts.length > 0) return textParts.join('\n');
+            }
+        }
+
+        // 4. OpenAI choices format
+        if (response.choices?.[0]?.message?.content) {
+            const choiceContent = response.choices[0].message.content;
+            if (typeof choiceContent === 'string') return choiceContent;
+            if (Array.isArray(choiceContent)) {
+                const textParts = choiceContent
+                    .filter(block => block && block.type === 'text' && typeof block.text === 'string')
+                    .map(block => block.text);
+                if (textParts.length > 0) return textParts.join('\n');
+            }
+        }
+
+        // 5. Other common fields
+        if (typeof response.text === 'string') return response.text;
+        if (typeof response.message === 'string') return response.message;
+        if (response.message?.content && typeof response.message.content === 'string') return response.message.content;
+
+        // 6. Last resort - stringify
+        console.error('[EchoChamber] Could not extract text from response, stringifying:', response);
+        return JSON.stringify(response);
+    }
+
     function setDiscordText(html) {
         if (!discordContent) return;
 
@@ -1122,33 +1180,19 @@ STRICTLY follow the format defined in the instruction. ${isNarratorStyle ? '' : 
                     }
                 );
 
-                // Parse response - handle Anthropic's content array format (extended thinking)
+                // DEBUG: Log the actual response shape from sendRequest
+                console.error('[EchoChamber DEBUG] sendRequest response type:', typeof response);
+                console.error('[EchoChamber DEBUG] isArray:', Array.isArray(response));
+                console.error('[EchoChamber DEBUG] response keys:', response ? Object.keys(response) : 'null/undefined');
                 if (response?.content) {
+                    console.error('[EchoChamber DEBUG] content type:', typeof response.content, 'isArray:', Array.isArray(response.content));
                     if (Array.isArray(response.content)) {
-                        // Anthropic format: content is an array of blocks
-                        // e.g. [{type:'text',text:'...'}, {type:'thinking',thinking:'...'}]
-                        result = response.content
-                            .filter(block => block.type === 'text' && block.text)
-                            .map(block => block.text)
-                            .join('\n');
-                    } else {
-                        result = response.content;
+                        console.error('[EchoChamber DEBUG] content blocks:', response.content.map(b => ({ type: b.type, hasText: !!b.text, textLen: b.text?.length })));
                     }
-                } else if (typeof response === 'string') {
-                    result = response;
-                } else if (response?.choices?.[0]?.message?.content) {
-                    const choiceContent = response.choices[0].message.content;
-                    if (Array.isArray(choiceContent)) {
-                        result = choiceContent
-                            .filter(block => block.type === 'text' && block.text)
-                            .map(block => block.text)
-                            .join('\n');
-                    } else {
-                        result = choiceContent;
-                    }
-                } else {
-                    result = JSON.stringify(response);
                 }
+
+                // Parse response - handle all possible formats from different API backends
+                result = extractTextFromResponse(response);
 
             } else if (settings.source === 'ollama') {
                 const baseUrl = settings.url.replace(/\/$/, '');
@@ -1225,15 +1269,7 @@ STRICTLY follow the format defined in the instruction. ${isNarratorStyle ? '' : 
                 });
                 if (!response.ok) throw new Error(`API Error: ${response.status}`);
                 const data = await response.json();
-                const openaiContent = data.choices[0].message.content;
-                if (Array.isArray(openaiContent)) {
-                    result = openaiContent
-                        .filter(block => block.type === 'text' && block.text)
-                        .map(block => block.text)
-                        .join('\n');
-                } else {
-                    result = openaiContent;
-                }
+                result = extractTextFromResponse(data);
             } else {
                 // Default ST generation using context - build message array like RPG Companion
                 const { generateRaw } = context;
@@ -1265,6 +1301,13 @@ STRICTLY follow the format defined in the instruction. ${isNarratorStyle ? '' : 
                 log('Generation was cancelled, skipping result parsing');
                 throw new Error('Generation cancelled by user');
             }
+
+            // Safety: ensure result is a string before string operations
+            if (typeof result !== 'string') {
+                console.error('[EchoChamber] result is not a string after extraction! Type:', typeof result, 'Value:', result);
+                result = extractTextFromResponse(result) || String(result);
+            }
+            console.error('[EchoChamber DEBUG] Final result (first 200 chars):', result?.substring?.(0, 200));
 
             // Parse result - strip thinking/reasoning tags and discordchat wrapper
             let cleanResult = result
