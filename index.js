@@ -271,9 +271,18 @@
             }
             // If livestream is in onComplete mode, let it handle its own generation cycle
         } else {
-            // When loading a chat, restore cached commentary
-            stopLivestream();
-            restoreCachedCommentary();
+            // This branch runs when autoGenerate=false:
+            // 1. When loading/switching chats (CHAT_CHANGED) - should stop livestream
+            // 2. When a new message arrives but livestream is manual mode - should NOT stop livestream
+            if (isLoadingChat) {
+                // Actually switching chats - stop everything and restore
+                stopLivestream();
+                restoreCachedCommentary();
+            } else if (!livestreamActive) {
+                // Not loading and no livestream active - safe to restore
+                restoreCachedCommentary();
+            }
+            // If livestream IS active and we're NOT loading a chat, leave it running
         }
     }
 
