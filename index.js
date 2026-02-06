@@ -1289,8 +1289,42 @@ STRICTLY follow the format defined in the instruction. ${isNarratorStyle ? '' : 
 
                     log(`Generating with ST generateRaw, messages: ${messages.length}`);
 
-                    // Pass the message array directly - generateRaw can handle it and will substitute macros
-                    result = await generateRaw({ prompt: messages, quietToLoud: false });
+                    // Temporarily intercept fetch to capture the raw API response.
+                    // This is needed because SillyTavern's generateRaw uses extractMessageFromData
+                    // which calls .find() to get the FIRST type:'text' block. With Claude extended
+                    // thinking, the first text block is just '\n\n' (empty), and the actual content
+                    // is in a later text block. generateRaw then throws "No message generated".
+                    // By capturing the raw response, we can extract the text ourselves on failure.
+                    let capturedRawData = null;
+                    const originalFetch = window.fetch;
+                    window.fetch = async function (...args) {
+                        const response = await originalFetch.apply(this, args);
+                        try {
+                            const url = typeof args[0] === 'string' ? args[0] : args[0]?.url || '';
+                            if (url.includes('/api/backends/chat-completions/generate') ||
+                                url.includes('/api/backends/') && url.includes('/generate')) {
+                                const clone = response.clone();
+                                capturedRawData = await clone.json();
+                            }
+                        } catch (e) { /* ignore clone/parse errors */ }
+                        return response;
+                    };
+
+                    try {
+                        result = await generateRaw({ prompt: messages, quietToLoud: false });
+                    } catch (genErr) {
+                        if (genErr.message?.includes('No message generated') && capturedRawData) {
+                            console.warn('[EchoChamber] generateRaw failed to parse response (likely extended thinking format). Extracting from raw API data.');
+                            result = extractTextFromResponse(capturedRawData);
+                            if (!result || !result.trim()) {
+                                throw new Error('Could not extract text from API response');
+                            }
+                        } else {
+                            throw genErr;
+                        }
+                    } finally {
+                        window.fetch = originalFetch; // Always restore original fetch
+                    }
                 } else {
                     throw new Error('generateRaw not available in context');
                 }
