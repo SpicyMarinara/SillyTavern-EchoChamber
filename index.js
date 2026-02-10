@@ -776,7 +776,8 @@
             { value: 'hypebot', label: '🤖 HypeBot' },
             { value: 'thoughtful', label: '🤔 Thoughtful' },
             { value: 'dumb_and_dumber', label: '🤪 Dumb & Dumber' },
-            { value: 'doomscrollers', label: '😰 Doomscrollers' }
+            { value: 'doomscrollers', label: '😰 Doomscrollers' },
+            { value: 'imageboardthread', label: '💀 Image Board Thread' }
         ];
 
         // Clear and populate
@@ -1486,7 +1487,8 @@ STRICTLY follow the format defined in the instruction. ${isNarratorStyle ? '' : 
     const STYLE_FILES = {
         'twitch': 'discordtwitch.md', 'verbose': 'thoughtfulverbose.md', 'twitter': 'twitterx.md', 'news': 'breakingnews.md',
         'mst3k': 'mst3k.md', 'nsfw_ava': 'nsfwava.md', 'nsfw_kai': 'nsfwkai.md', 'hypebot': 'hypebot.md',
-        'doomscrollers': 'doomscrollers.md', 'dumbanddumber': 'dumbanddumber.md', 'ao3wattpad': 'ao3wattpad.md'
+        'doomscrollers': 'doomscrollers.md', 'dumbanddumber': 'dumbanddumber.md', 'ao3wattpad': 'ao3wattpad.md',
+        'imageboardthread': 'imageboardthread.md'
     };
     const BUILT_IN_STYLES = [
         { val: 'twitch', label: 'Discord / Twitch' }, { val: 'verbose', label: 'Thoughtful' },
@@ -1494,7 +1496,7 @@ STRICTLY follow the format defined in the instruction. ${isNarratorStyle ? '' : 
         { val: 'mst3k', label: 'MST3K' }, { val: 'nsfw_ava', label: 'Ava NSFW' },
         { val: 'nsfw_kai', label: 'Kai NSFW' }, { val: 'hypebot', label: 'HypeBot' },
         { val: 'doomscrollers', label: 'Doomscrollers' }, { val: 'dumbanddumber', label: 'Dumb & Dumber' },
-        { val: 'ao3wattpad', label: 'AO3 / Wattpad' }
+        { val: 'ao3wattpad', label: 'AO3 / Wattpad' }, { val: 'imageboardthread', label: 'Image Board Thread' }
     ];
 
     function getAllStyles() {
